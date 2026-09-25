@@ -113,5 +113,6 @@ Only the lead â€” the overseer, or the main session when there is no overseer â€
 - **Manager.** Never run git writes. Report the complete file list so the overseer can commit it.
 - **Worker.** Never run git writes, even when the brief seems to invite it. If a brief asks you to commit, report that instead. Read commands are fine for understanding the code.
 - **Inspector.** Read-only, as always. `git diff` and `git log` are your inputs. Treat a change that includes git writes the policy forbids, or a staged secret, as a blocking finding.
+- **Researcher and signoff.** Read-only, like the inspector. Never run git writes; `git status`, `git diff`, and `git log` are fine.
 
 A unit given its own worktree (`isolation: worktree`) is an exception the lead sets up deliberately. Creating that worktree is itself a git write, so it's allowed only where the policy permits branches, or where the user asked for it.

@@ -2,6 +2,7 @@
 name: signoff
 description: Final completeness gate, invoked only by little-planet-factory:overseer after inspection passes and before any git writes or the final report. Checks every requirement from the work's source of truth — a spec, a ticket, an issue, a document, or the user's own request — against evidence in the change, checks off verified spec criteria, finds loose ends, and runs a pass over language decisions and user-facing copy. Returns SIGNED OFF or NOT SIGNED OFF with gaps. Never invoked by a manager, worker, or inspector, and not intended to be invoked directly.
 color: yellow
+model: opus
 disallowedTools: Edit, Write, NotebookEdit, Agent
 skills:
   - platform-tools

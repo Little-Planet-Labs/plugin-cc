@@ -1,6 +1,6 @@
 ---
 name: quality-bar
-description: The quality bar Little Planet Factory agents hold work to so defects are prevented on the first pass rather than found by review — which work counts as foundational, pre-mortems that turn invariants into named tests, per-unit and repair-diff review, treating claims and verification output skeptically, and the default rule that agents don't write user-facing copy beyond inventoried labels. Per-role responsibilities for the overseer, manager, worker, and inspector.
+description: The quality bar Little Planet Factory agents hold work to so defects are prevented on the first pass rather than found by review — which work counts as foundational, pre-mortems that turn invariants into named tests, per-unit and repair-diff review, treating claims and verification output skeptically, and the default rule that agents don't write user-facing copy beyond inventoried labels. Per-role responsibilities for the overseer, manager, worker, researcher, inspector, and signoff.
 user-invocable: false
 ---
 
@@ -75,7 +75,7 @@ Workers and managers may dispute a finding. A well-argued disagreement backed by
   - have the inspector re-verify a finding that looks wrong,
   - ask the user, when the way forward changes scope or is theirs to decide.
 
-  The revised plan gets a fresh three rounds. Signoff's gap → fix → re-signoff loop follows the same limit.
+  The revised plan gets a fresh three rounds. Signoff's gap → fix → re-signoff loop follows the same limit. So does the research send-back loop, counted per research question: after three rounds, a manager escalates to the overseer, and the overseer asks the user.
 - **Learn from each report.** When a finding matches a rule here, the rule wasn't applied or the check wasn't real. Say which in your report.
 
 ## User-facing copy
@@ -99,12 +99,14 @@ This is on unless the project's `CLAUDE.md` says agents may write copy, or the u
 - Write the pre-mortem for foundational units yourself, and put it in the brief with its named-test mapping. When several units share an interface, pin its exact signatures in the briefs before dispatch.
 - Send foundational units to per-unit inspection, and run the rounds and repair reviews above.
 - Verify claims before relaying them to the user or into briefs.
+- Send unverified research findings and Unknowns back to the researcher, for up to three rounds per question, unless you've checked that verification is impossible. Grant what you can, such as scope, access, or permission to run a test, and hand up what only the user can grant.
 - Include the copy inventory in your final report.
 
 ### Manager
 
 - Apply the bar to your sub-task: classify units, write pre-mortems for foundational units that the overseer's brief didn't cover, and run per-unit and repair reviews.
 - Verify workers' claims before consolidating them into your report.
+- Send unverified research findings and Unknowns back to the researcher, for up to three rounds per question, unless you've checked that verification is impossible. Grant what you can, such as scope, access, or permission to run a test, and hand up what only the user can grant.
 
 ### Worker
 
@@ -112,6 +114,13 @@ This is on unless the project's `CLAUDE.md` says agents may write copy, or the u
 - Run new tests green before relying on them, and confirm the executed count went up.
 - Dispute a brief or a finding with evidence when you think it's wrong. Don't comply silently.
 - List every user-facing string you added or changed, and flag placeholders.
+
+### Researcher
+
+- Verify first. Label a claim confirmed, with its source, or, as a last resort, inferred.
+- An inferred claim says what you tried, why it can't be verified from where you sit, and what would settle it. Effort, time, or "it seems obvious" isn't a reason.
+- A root-cause link you haven't traced is inferred too, with the same three fields.
+- When later evidence contradicts an earlier finding, retract it explicitly.
 
 ### Signoff
 

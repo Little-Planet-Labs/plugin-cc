@@ -32,12 +32,14 @@ To roll it out to everyone working in a repo, add this to the repo's `.claude/se
 
 ## Little Planet Factory
 
-Five agents that split a task into parallel units of work and don't call it done until it has been checked.
+Six agents that split a task into parallel units of work and don't call it done until it has been checked.
 
 ```
 overseer            you talk to this one
+├── researcher      answers one question, with cited findings
 ├── worker          small, well-defined units
 ├── manager         complex sub-tasks
+│   ├── researcher
 │   ├── worker
 │   ├── worker
 │   └── inspector   reviews the manager's sub-task
@@ -65,13 +67,19 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 **Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers in parallel. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, and every required inspection has come back clean.
 
-**Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface.
+**Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface. It picks opus or sonnet for each worker based on the unit's difficulty and risk. It never uses haiku for a worker, and nothing above opus unless you ask for it.
+
+**Researcher** (`little-planet-factory:researcher`) answers one question for the overseer or a manager before it plans or writes a brief: how an external library or API behaves, an end-to-end root-cause trace, or a broad sweep across repos, the knowledge vault, or tickets. It's read-only. Every finding is labeled either confirmed, with its source, or inferred. Findings are verified wherever possible; an unverified one is a last resort and must say what was tried and why it can't be checked. Leads send research back for up to three rounds per question, then you decide. It runs on sonnet by default, haiku for plain sweeps, and opus for hard tracing. It isn't for scoping the files the lead is about to split; the lead reads those itself.
 
 **Worker** (`little-planet-factory:worker`) implements one unit. It stays inside the files it was assigned, matches the surrounding code's conventions, runs targeted checks, and reports what it changed and what it assumed. It can't spawn other agents.
 
 **Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF.
 
 **Inspector** (`little-planet-factory:inspector`) reviews a change against its definition of done: brief compliance, correctness, security, efficiency, tooling, whether units from different agents fit together, and maintainability for broad changes. It's read-only. It returns a PASS / PASS WITH NOTES / FAIL verdict with each blocking finding tied to a file, and the lead sends that finding back to whoever owns the file. You can also call it directly for a review.
+
+### Models
+
+Every subagent except the researcher (sonnet) is pinned to opus, so the model you start the session on doesn't carry down to them. Agents without a pin, such as Claude Code's built-in agent types, get an explicit model of opus or lower on every call. Leads can downgrade per call: sonnet for a mechanical worker, haiku for a researcher doing a plain sweep. Workers never run on haiku. Nothing runs above opus unless you ask for it, and then only for the work you named. The overseer runs on whatever model you start it with.
 
 ### When inspection runs
 
@@ -121,7 +129,7 @@ Only `policy` is required. GitHub operations go through the `gh` CLI, one bare c
 
 Everything else gets the normal inspection heuristic. Every repair diff is re-reviewed. After three review rounds on a unit, repairs stop. The overseer decides what has to change before work resumes: the brief, coordination between units, the agent, or the approach. It asks you when the decision is yours. Signoff's re-runs have the same limit. Claims and verification output are checked rather than trusted: a 0-test "pass" isn't a pass. Agents don't write product prose by default. Short labels are fine if they're listed in the copy inventory. A project's `CLAUDE.md`, or asking in the session, turns this off.
 
-**Asking questions** (`asking-questions`) is preloaded into the overseer, manager, worker, and signoff. When a decision is yours, it asks through the interview-question UI: each question has a sentence or two of self-contained context, one decision, and two to four options with their consequences, with a recommendation first. No questions are buried in prose, and none of its messages end with an inline "want me to…?". Managers and workers pass questions up in the same shape, and the overseer merges them into one interview.
+**Asking questions** (`asking-questions`) is preloaded into the overseer, manager, worker, and signoff. The researcher and inspector don't ask. When a decision is yours, it asks through the interview-question UI: each question has a sentence or two of self-contained context, one decision, and two to four options with their consequences, with a recommendation first. No questions are buried in prose, and none of its messages end with an inline "want me to…?". Managers and workers pass questions up in the same shape, and the overseer merges them into one interview.
 
 **Vercel** (`vercel`) loads when a project deploys to Vercel. Deploys happen only by pushing to git, never with `vercel deploy`, `--prod`, `redeploy`, `promote`, or `rollback`, unless you ask for that specific action. Pushing still follows the version-control policy, so under `none` or `commit` the agent reports that the change is ready to deploy rather than deploying it. The skill also covers env vars (pull from Vercel, never hand-edit `.env` files, never handle secret values), function limits, Next.js, Blob, and DNS gotchas, and debugging from logs instead of redeploying.
 
@@ -146,13 +154,13 @@ Agents detect both servers by their tool names, so it doesn't matter what name y
 .claude-plugin/marketplace.json            marketplace manifest
 plugins/little-planet-factory/
   .claude-plugin/plugin.json               plugin manifest
-  agents/                                  overseer, manager, worker, inspector, signoff
+  agents/                                  overseer, manager, worker, researcher, inspector, signoff
   skills/platform-tools/                   Cadence and Telescope guidance, preloaded into every agent
   skills/version-control/                  git policy resolution and safety rules, preloaded into every agent
   skills/react-apps/                       React web app conventions, loaded on demand
   skills/xcode-projects/                   Xcode and Swift conventions, loaded on demand
   skills/quality-bar/                      foundational tiering, pre-mortems, review and copy rules, preloaded into every agent
-  skills/asking-questions/                 interview-style questions to the user, preloaded into all agents but the inspector
+  skills/asking-questions/                 interview-style questions to the user, preloaded into all agents but the researcher and inspector
   skills/vercel/                           Vercel deploy rules and platform gotchas, loaded on demand
 ```
 

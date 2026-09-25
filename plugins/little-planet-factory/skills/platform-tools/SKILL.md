@@ -1,6 +1,6 @@
 ---
 name: platform-tools
-description: How Little Planet Factory agents use the Cadence and Telescope MCP servers when they are connected — knowledge vault, reports, specs, and upstream-incident diagnosis — with per-role responsibilities for the overseer, manager, worker, and inspector.
+description: How Little Planet Factory agents use the Cadence and Telescope MCP servers when they are connected — knowledge vault, reports, specs, and upstream-incident diagnosis — with per-role responsibilities for the overseer, manager, worker, researcher, inspector, and signoff.
 user-invocable: false
 ---
 
@@ -79,6 +79,13 @@ A clean Telescope result means no known upstream incident, not proof the bug is 
 - **Vault reads.** Trust the vault findings quoted in your brief. Run a targeted `list_knowledge` query only when you hit something the brief didn't cover — an unfamiliar subsystem, a surprising error, or a risky area.
 - **No vault writes.** Flag findings worth saving, and any entry that contradicts your brief or the code, in your report.
 - **Telescope.** Consult it before debugging any failure that involves an external service. Report a matched incident rather than coding around it.
+
+### Researcher
+
+- **Vault reads** are part of the job. Search the vault for the question you were sent, and cite the entries you rely on.
+- **No vault writes.** List anything worth saving, and any entry that conflicts with the code, in your report.
+- **Telescope.** For a question about a failure involving an external service, consult it first, and report a matched incident as a finding.
+- **No reports.** You never build them; your output is the research report returned to your lead.
 
 ### Signoff
 

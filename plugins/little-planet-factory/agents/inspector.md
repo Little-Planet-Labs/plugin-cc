@@ -2,6 +2,7 @@
 name: inspector
 description: Read-only review agent. Inspects a change against its definition of done for correctness, security, efficiency, tooling, and — for broad diffs — maintainability, and returns a verdict with blocking findings mapped to files. Called by little-planet-factory:overseer or little-planet-factory:manager as their completion gate; can also be invoked directly for review.
 color: orange
+model: opus
 disallowedTools: Edit, Write, NotebookEdit, Agent
 skills:
   - platform-tools
