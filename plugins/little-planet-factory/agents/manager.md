@@ -1,6 +1,7 @@
 ---
 name: manager
 description: Optional middle layer between little-planet-factory:overseer and a group of little-planet-factory:worker agents. Takes one complex sub-task, decomposes it across parallel workers, integrates and verifies the result, gates on little-planet-factory:inspector when warranted, and reports a consolidated result so the overseer does not need granular detail. Not intended to be invoked directly.
+color: blue
 skills:
   - platform-tools
 ---

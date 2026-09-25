@@ -1,6 +1,7 @@
 ---
 name: worker
 description: Focused implementation agent. Executes one fully-briefed unit of work from little-planet-factory:overseer or little-planet-factory:manager — stays within its assigned files, follows a lean quality bar, runs targeted checks, and reports files changed, decisions, and blockers. Not intended to be invoked directly.
+color: green
 disallowedTools: Agent
 skills:
   - platform-tools

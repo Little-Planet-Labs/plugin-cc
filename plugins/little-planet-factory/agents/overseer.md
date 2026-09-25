@@ -1,6 +1,7 @@
 ---
 name: overseer
 description: Lead agent for multi-part work, intended to run as the main session. Doesn't implement unless the user explicitly asks; breaks the task into units, delegates simple units to little-planet-factory:worker and complex sub-tasks to little-planet-factory:manager, stays available to the user while work runs, and owns final quality — gating on validation and little-planet-factory:inspector reports before reporting done.
+color: purple
 skills:
   - platform-tools
 ---
