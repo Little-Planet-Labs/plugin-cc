@@ -1,3 +1,5 @@
+![Solarpunk code factory with solar panels, wind turbines, conveyor belts, and a robotic arm](assets/brand/solarpunk-factory-hero-v5.png)
+
 # Little Planet Labs Claude Code plugins
 
 A [Claude Code](https://code.claude.com) plugin marketplace from Little Planet Labs.
