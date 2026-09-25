@@ -123,3 +123,7 @@ Test locally from a clone:
 ```
 
 Bump `version` in both `plugins/little-planet-factory/.claude-plugin/plugin.json` and the plugin's entry in `.claude-plugin/marketplace.json`, then tag the release with `claude plugin tag`, which checks that the two agree.
+
+---
+
+<a href="https://littleplanetlabs.com"><img src="assets/brand/little-planet-labs-logo.svg" alt="Little Planet Labs" width="132"></a>
