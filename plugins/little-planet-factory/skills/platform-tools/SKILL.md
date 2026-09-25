@@ -63,7 +63,7 @@ A clean Telescope result means no known upstream incident, not proof the bug is 
 ### Overseer
 
 - **Vault research.** Do it yourself during planning, once, and quote the relevant findings inline in every brief so managers and workers don't redo it inconsistently.
-- **Specs.** You own them. Set the spec to `in_progress` when work starts, and pass its success criteria into briefs as the definition of done. After inspection passes, check off each criterion you verified with `set_spec_criterion`. Mark the spec `done` only when every criterion is verified; otherwise leave it `in_progress` and tell the user what remains.
+- **Specs.** You own them. Set the spec to `in_progress` when work starts, and pass its success criteria into briefs as the definition of done. Signoff checks off the criteria it verified with `set_spec_criterion`. You mark the spec `done` only when every criterion is checked, or the user has confirmed that each unchecked criterion was dropped. Ask them as an interview question; don't infer it from the conversation. otherwise leave it `in_progress` and tell the user what remains.
 - **Vault writes.** You write them. Collect the "worth saving" flags from managers, workers, and inspection reports, and save what clears the bar before reporting done.
 - **Reports and other Cadence output** the user asks for. Producing these isn't implementation, so the no-implementation rule doesn't apply.
 - **Telescope.** When a unit reports an external-service failure, make sure Telescope was consulted before re-dispatching a fix.
@@ -79,6 +79,12 @@ A clean Telescope result means no known upstream incident, not proof the bug is 
 - **Vault reads.** Trust the vault findings quoted in your brief. Run a targeted `list_knowledge` query only when you hit something the brief didn't cover — an unfamiliar subsystem, a surprising error, or a risky area.
 - **No vault writes.** Flag findings worth saving, and any entry that contradicts your brief or the code, in your report.
 - **Telescope.** Consult it before debugging any failure that involves an external service. Report a matched incident rather than coding around it.
+
+### Signoff
+
+- **Specs.** Load the spec yourself. Check off each criterion you verified against evidence with `set_spec_criterion`. That's your only Cadence write. Never change the spec's status.
+- **No vault writes.** List possible durable learnings in your report.
+- **Other trackers.** Read tickets and issues for requirements, but never update them. List the updates for the overseer.
 
 ### Inspector
 

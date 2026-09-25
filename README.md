@@ -32,7 +32,7 @@ To roll it out to everyone working in a repo, add this to the repo's `.claude/se
 
 ## Little Planet Factory
 
-Four agents that split a task into parallel units of work and don't call it done until it has been checked.
+Five agents that split a task into parallel units of work and don't call it done until it has been checked.
 
 ```
 overseer            you talk to this one
@@ -41,7 +41,8 @@ overseer            you talk to this one
 │   ├── worker
 │   ├── worker
 │   └── inspector   reviews the manager's sub-task
-└── inspector       reviews units and the combined result
+├── inspector       reviews units and the combined result
+└── signoff         confirms everything asked for is done
 ```
 
 ### Start a session
@@ -68,6 +69,8 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 **Worker** (`little-planet-factory:worker`) implements one unit. It stays inside the files it was assigned, matches the surrounding code's conventions, runs targeted checks, and reports what it changed and what it assumed. It can't spawn other agents.
 
+**Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF.
+
 **Inspector** (`little-planet-factory:inspector`) reviews a change against its definition of done: brief compliance, correctness, security, efficiency, tooling, whether units from different agents fit together, and maintainability for broad changes. It's read-only. It returns a PASS / PASS WITH NOTES / FAIL verdict with each blocking finding tied to a file, and the lead sends that finding back to whoever owns the file. You can also call it directly for a review.
 
 ### When inspection runs
@@ -80,6 +83,47 @@ The overseer and managers send work to the inspector when:
 - the diff is broad: more than one logical area, 4+ files, about 150+ changed lines, or behavior shared across routes, components, or tools
 
 The overseer applies this to each unit and again to the combined change, since several small units can add up to a broad one. Small, low-risk edits skip inspection but still get verified.
+
+### Skills
+
+The agents share six skills beyond the platform guidance.
+
+**Version control** (`version-control`) is preloaded into every agent. Before any git command that changes state, the agents work out the project's policy, then stay inside it:
+
+| Policy | What the agents do |
+|---|---|
+| `none` | Edit the working tree and leave everything uncommitted. This is the default when a project says nothing. |
+| `commit` | Commit verified changes on the current branch. Never push. |
+| `push` | Commit on the current branch and push it, e.g. straight to `main`. No branches or PRs. |
+| `pull-request` | Branch, commit, push the branch, and open a pull request. Never commit to the base branch. |
+
+The policy comes from, in order: what you say in the session, then the project's `CLAUDE.md` or `AGENTS.md`, then the `none` default. Repo conventions like a PR template shape *how* the agents branch and write messages, but never grant a higher level. Conflicts resolve to the more restrictive reading. To state a policy unambiguously, add this to the project's `CLAUDE.md`:
+
+```markdown
+## Version control
+
+policy: pull-request
+base: main
+branch: <type>/<ticket>-<short-description>
+commit-style: conventional
+merge: never
+```
+
+Only `policy` is required. GitHub operations go through the `gh` CLI, one bare command per call, with no loops, polling scripts, or chained writes. Under every policy, the agents stage explicit paths, never force-push, never skip hooks, never change git config, and never discard work they didn't create. Only the overseer runs git writes, once the work passes verification and inspection. Managers and workers never commit, because they share a working tree with agents still in flight.
+
+**React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and `xcodebuild` with per-agent DerivedData and without taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review.
+
+**Quality bar** (`quality-bar`) is preloaded into every agent. It aims for no bugs on the first pass, so review confirms quality rather than discovering defects. Foundational work gets the full bar:
+- **What counts as foundational:** persistence, schemas, sync, shared interfaces, auth, and concurrency.
+- **Pre-mortem:** before dispatch, the lead lists invariants and failure modes, and each becomes a named test.
+- **Per-unit inspection** before integration.
+- **At least two review rounds.**
+
+Everything else gets the normal inspection heuristic. Every repair diff is re-reviewed. After three review rounds on a unit, repairs stop. The overseer decides what has to change before work resumes: the brief, coordination between units, the agent, or the approach. It asks you when the decision is yours. Signoff's re-runs have the same limit. Claims and verification output are checked rather than trusted: a 0-test "pass" isn't a pass. Agents don't write product prose by default. Short labels are fine if they're listed in the copy inventory. A project's `CLAUDE.md`, or asking in the session, turns this off.
+
+**Asking questions** (`asking-questions`) is preloaded into the overseer, manager, worker, and signoff. When a decision is yours, it asks through the interview-question UI: each question has a sentence or two of self-contained context, one decision, and two to four options with their consequences, with a recommendation first. No questions are buried in prose, and none of its messages end with an inline "want me to…?". Managers and workers pass questions up in the same shape, and the overseer merges them into one interview.
+
+**Vercel** (`vercel`) loads when a project deploys to Vercel. Deploys happen only by pushing to git, never with `vercel deploy`, `--prod`, `redeploy`, `promote`, or `rollback`, unless you ask for that specific action. Pushing still follows the version-control policy, so under `none` or `commit` the agent reports that the change is ready to deploy rather than deploying it. The skill also covers env vars (pull from Vercel, never hand-edit `.env` files, never handle secret values), function limits, Next.js, Blob, and DNS gotchas, and debugging from logs instead of redeploying.
 
 ### Optional integrations
 
@@ -102,8 +146,14 @@ Agents detect both servers by their tool names, so it doesn't matter what name y
 .claude-plugin/marketplace.json            marketplace manifest
 plugins/little-planet-factory/
   .claude-plugin/plugin.json               plugin manifest
-  agents/                                  overseer, manager, worker, inspector
+  agents/                                  overseer, manager, worker, inspector, signoff
   skills/platform-tools/                   Cadence and Telescope guidance, preloaded into every agent
+  skills/version-control/                  git policy resolution and safety rules, preloaded into every agent
+  skills/react-apps/                       React web app conventions, loaded on demand
+  skills/xcode-projects/                   Xcode and Swift conventions, loaded on demand
+  skills/quality-bar/                      foundational tiering, pre-mortems, review and copy rules, preloaded into every agent
+  skills/asking-questions/                 interview-style questions to the user, preloaded into all agents but the inspector
+  skills/vercel/                           Vercel deploy rules and platform gotchas, loaded on demand
 ```
 
 ## Development
