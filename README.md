@@ -94,7 +94,7 @@ The overseer applies this to each unit and again to the combined change, since s
 
 ### Skills
 
-The agents share six skills beyond the platform guidance.
+The agents share eight skills beyond the platform guidance.
 
 **Version control** (`version-control`) is preloaded into every agent. Before any git command that changes state, the agents work out the project's policy, then stay inside it:
 
@@ -131,7 +131,11 @@ Everything else gets the normal inspection heuristic. Every repair diff is re-re
 
 **Asking questions** (`asking-questions`) is preloaded into the overseer, manager, worker, and signoff. The researcher and inspector don't ask. When a decision is yours, it asks through the interview-question UI: each question has a sentence or two of self-contained context, one decision, and two to four options with their consequences, with a recommendation first. No questions are buried in prose, and none of its messages end with an inline "want me to…?". Managers and workers pass questions up in the same shape, and the overseer merges them into one interview.
 
-**Vercel** (`vercel`) loads when a project deploys to Vercel. Deploys happen only by pushing to git, never with `vercel deploy`, `--prod`, `redeploy`, `promote`, or `rollback`, unless you ask for that specific action. Pushing still follows the version-control policy, so under `none` or `commit` the agent reports that the change is ready to deploy rather than deploying it. The skill also covers env vars (pull from Vercel, never hand-edit `.env` files, never handle secret values), function limits, Next.js, Blob, and DNS gotchas, and debugging from logs instead of redeploying.
+**Vercel** (`vercel`) loads when a project deploys to Vercel. Deploys happen only by pushing to git, never with `vercel deploy`, `--prod`, `redeploy`, `promote`, or `rollback`, unless you ask for that specific action. Pushing still follows the version-control policy, so under `none` or `commit` the agent reports that the change is ready to deploy rather than deploying it. Unless you ask otherwise, every Vercel project gets Vercel Web Analytics and Speed Insights; the agent adds the components and tells you when Web Analytics still needs enabling in the dashboard. Neon is never used, whether directly, through the Vercel Marketplace, or as the former Vercel Postgres. When a project needs a database, the agent asks you which one. The skill also covers env vars (pull from Vercel, never hand-edit `.env` files, never handle secret values), function limits and costs, Next.js-on-Vercel rules, build file tracing, Blob access, and debugging from logs instead of redeploying.
+
+**Next.js** (`nextjs`) loads when a project depends on `next`, on any host, alongside `react-apps`. Unless you ask otherwise, every site gets a dynamically generated Open Graph image through the `opengraph-image` file convention, and images go through `next/image` rather than a plain `<img>`. It covers the Metadata API and metadata file conventions, `next/image`, `proxy.ts`, hydration safety, Next 16 caching and `"use server"` rules, route-level CSS, and toolchain pins, labeled with the version they were verified on.
+
+**Web design** (`web-design`) loads for any project that builds web pages or sites, whatever the framework. It covers SEO (titles, meta descriptions, canonical URLs, robots and sitemaps, structured data), favicons and app icons, tab titles (no em-dashes), social cards, theming meta, and accessibility and motion rules. The `nextjs` skill implements these in Next.
 
 ### Optional integrations
 
@@ -161,7 +165,9 @@ plugins/little-planet-factory/
   skills/xcode-projects/                   Xcode and Swift conventions, loaded on demand
   skills/quality-bar/                      foundational tiering, pre-mortems, review and copy rules, preloaded into every agent
   skills/asking-questions/                 interview-style questions to the user, preloaded into all agents but the researcher and inspector
-  skills/vercel/                           Vercel deploy rules and platform gotchas, loaded on demand
+  skills/vercel/                           Vercel deploy rules and platform defaults, loaded on demand
+  skills/nextjs/                           Next.js conventions and defaults, loaded on demand
+  skills/web-design/                       framework-agnostic SEO, icon, title, and design rules, loaded on demand
 ```
 
 ## Development

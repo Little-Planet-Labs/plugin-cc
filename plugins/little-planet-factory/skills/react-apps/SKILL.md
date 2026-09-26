@@ -19,6 +19,8 @@ Read these first. They settle most decisions, and they're cheap:
 
 Put what you found in every brief so workers don't re-derive it.
 
+Next.js projects also load the `nextjs` skill, and anything that builds web pages loads `web-design`.
+
 ## Verify without a dev server
 
 Never start a long-running dev server (`dev`, `start`, `vite`, `next dev`, `storybook`) unless the user asks. It never exits, it blocks the agent, and it holds ports the user may be using. Verification runs through commands that finish:

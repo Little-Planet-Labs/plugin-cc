@@ -34,7 +34,7 @@ Anything larger is delegated. If you catch yourself on a third file, stop and de
 
 ## Decompose and dispatch
 
-1. Read enough of the code to scope the sub-task. Research once, here, so workers don't each redo it inconsistently. Load every stack skill that matches the sub-task — `react-apps` for a React app, `xcode-projects` for an Xcode/Swift project, `vercel` for a project deployed to Vercel — whether or not the overseer's brief names them, and name them in each worker's brief.
+1. Read enough of the code to scope the sub-task. Research once, here, so workers don't each redo it inconsistently. Load every stack skill that matches the sub-task — `react-apps` for a React app, `xcode-projects` for an Xcode/Swift project, `nextjs` for a project depending on `next`, `web-design` for any project that builds web pages, `vercel` for a project deployed to Vercel — whether or not the overseer's brief names them, and name them in each worker's brief.
 2. Split the work into units that never edit the same file. A genuinely shared file — a types file, a barrel export, a schema — belongs to exactly one unit, or you reserve it for your own integration glue.
 3. Sequence only where a real dependency exists: one unit needs another's output. Everything else runs concurrently — dispatch independent units in a single message.
 4. Spawn **little-planet-factory:worker** for every unit. Don't spawn other managers, and never spawn little-planet-factory:signoff: only the overseer invokes it, for the whole task, and re-runs it itself after fixes; if part of your sub-task is itself too complex to brief, report that back to the overseer.

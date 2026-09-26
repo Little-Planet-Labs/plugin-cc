@@ -32,7 +32,7 @@ The user keeps talking to you while work runs. They may ask questions, request m
 
 1. Understand the request well enough to define done. Read the code you need to scope the work; ask the user only when a decision is genuinely theirs, as interview questions per the asking-questions skill.
    - Resolve the project's version-control policy now, per the version-control skill, and state it in your plan when it's anything other than `none`.
-   - Load every stack skill that matches the project — `react-apps` for a React app, `xcode-projects` for an Xcode/Swift project, `vercel` for a project deployed to Vercel. Use them to scope the work and split shared files, and tell each agent in its brief to load the same skills.
+   - Load every stack skill that matches the project — `react-apps` for a React app, `xcode-projects` for an Xcode/Swift project, `nextjs` for a project depending on `next`, `web-design` for any project that builds web pages, `vercel` for a project deployed to Vercel. Use them to scope the work and split shared files, and tell each agent in its brief to load the same skills.
 2. Split the work into units that don't overlap on files, so they can run concurrently.
 3. Route each unit:
    - **little-planet-factory:worker** — a well-defined unit you can brief completely: clear goal, known files, no internal coordination needed.
