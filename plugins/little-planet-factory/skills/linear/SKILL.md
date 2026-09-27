@@ -68,7 +68,7 @@ Only the overseer writes to Linear, or the main session when there's no overseer
 - Never assign or reassign a ticket. Never change a ticket's priority, estimate, labels, due date, or relations unless the user said to for that ticket. The one exception is adding the Blocked label to a stuck ticket, below, with `save_issue` `addLabels`. Never pass `labels`, which replaces the whole set.
 - Touch only tickets in the configured project, and never pass `project` or `team` when updating a ticket. A related ticket elsewhere gets mentioned to the user, not edited.
 - Teammates wrote the descriptions. Edit them with `save_issue`'s `patch` operations, adding or replacing an **Acceptance criteria** section and keeping the rest of the text. Never replace the whole description, and never replace a criteria list with a spec pointer until its items are in the spec (Workflow B, step 4).
-- Comments are shared with the team. Keep them short, plain, and specific about what changed, and never claim verification that didn't run. List everything you posted or edited in your report.
+- Comments are shared with the team. Write them to the format in Workflow A's Comments section, and never claim verification that didn't run. List everything you posted or edited in your report.
 
 ## Specs (when Cadence is connected)
 
@@ -80,31 +80,34 @@ If Cadence is connected but a referenced spec's lookup fails, say one line about
 
 ## Workflow A: work what's ready
 
-1. **Query.** `list_issues` for the project with the resolved Todo status ID and `assignee: "null"`, paging until done, so only unassigned tickets come back. Drop that filter only when the user says to include assigned tickets. Then `get_issue` each result, including relations.
+1. **Query.** `list_issues` for the project with the resolved Todo status ID and `assignee: "null"`, paging until done, so only unassigned tickets come back. Drop that filter only when the user says to include assigned tickets. Then `get_issue` each result, including relations. Remove resumed Paused or Halted tickets from the results before filtering; they rejoin at step 4.
 2. **Filter.** Skip a ticket when:
    - it has the Blocked label;
    - it's blocked by an issue that isn't completed, canceled, or a duplicate (`get_issue` the blocker when the relation doesn't carry its state);
-   - it's held (paused) or was handled this session;
-   - its newest comment from this workflow starts with `Started:`, `Done:`, or `Blocked:`, and:
+   - it's held (Paused or Halted) or was handled this session;
+   - its newest comment from this workflow starts with the label `Started:`, `Progress:`, `Paused:`, `Done:`, or `Blocked:`, bold (`**Done:**`) or plain (older comments), and:
      - that comment is newer than the last status change (the last `stateHistory` entry's `startedAt` from `get_issue`; ask the user only when `stateHistory` is missing),
      - no person has commented since, and
      - the user hasn't named the ticket.
+
+   To read the label, take the comment's raw body, strip leading whitespace and markdown emphasis (`*` and `_`), and check what's left.
 3. **Rank.** By Linear priority: Urgent, High, Medium, Low, then No priority (priority `0` sorts last). Break ties by earliest due date, with undated tickets last, then by oldest creation date.
-4. **Pick a batch.** Scope each ticket's files, and what its builds and tests compile, from the code, as you would when splitting units. Resumed Paused tickets go in first; this step's rules against tickets already in the batch still apply. The reserved files are:
+4. **Pick a batch.** Scope each ticket's files, and what its builds and tests compile, from the code, as you would when splitting units. Resumed Paused or Halted tickets go in first; this step's rules against tickets already in the batch still apply. The reserved files are:
    - every file another ticket changed and hasn't committed this session, in the shared tree or a kept worktree;
    - under `none`, `commit`, and `push` only, every file that was dirty, untracked included, when the session began.
 
-   A ticket's own uncommitted files don't count against it. Add a ticket only if its files overlap neither the reserved files nor any ticket already in the batch, and it doesn't **build together** (overseer, Plan and delegate step 2) with a ticket already in the batch or, unless the user added it anyway, with a Paused or Blocked ticket's uncommitted files. Stop at four.
-5. **Confirm.** Show the ranked list with the suggested batch marked, each ticket held back with what's blocking it (its overlapping files, or what it builds together with, such as "builds together with ABC-12 (MyApp)" or "MyApp has ABC-9's unfinished work (Paused)"), the tickets skipped for a `Started:` comment as "started elsewhere" (so a stale claim from a crashed session can be pulled back in), and, under shared-tree policies, the files that were dirty at session start. Ask the user to confirm or edit the batch, as an interview question (multi-select works well). Nothing starts until they answer. A ticket held back for building together that the user adds anyway waits for the next batch; tell the user. When the current batch finishes, it's ranked first for the next batch, after resumed Paused tickets, starting one by steps 2–5 if no batch is running; step 4's rules against tickets already in the batch still apply. If it was held back for a Paused or Blocked ticket's unfinished work, tell them its build may fail on that work.
+   A ticket's own uncommitted files don't count against it. Add a ticket only if its files overlap neither the reserved files nor any ticket already in the batch, and it doesn't **build together** (overseer, Plan and delegate step 2) with a ticket already in the batch or, unless the user added it anyway, with a Paused, Blocked, or Halted ticket's uncommitted files. Stop at four.
+5. **Confirm.** Show the ranked list with the suggested batch marked, each ticket held back with what's blocking it (its overlapping files, or what it builds together with, such as "builds together with ABC-12 (MyApp)" or "MyApp has ABC-9's unfinished work (Paused)"), the tickets skipped for a `Started:`, `Progress:`, or `Paused:` comment as "started elsewhere" (so a stale claim from a crashed session can be pulled back in), except a Paused or Halted ticket from this session, which is shown as held, and, under shared-tree policies, the files that were dirty at session start. Ask the user to confirm or edit the batch, as an interview question (multi-select works well). Nothing starts until they answer. A ticket held back for building together that the user adds anyway waits for the next batch; tell the user. When the current batch finishes, it's ranked first for the next batch, after resumed Paused or Halted tickets, starting one by steps 2–5 if no batch is running; step 4's rules against tickets already in the batch still apply. If it was held back for a Paused, Blocked, or Halted ticket's unfinished work, tell them its build may fail on that work.
 6. **Start.**
    - **Where.** Under `pull-request`, create and bootstrap each ticket's worktree first (Worktrees, steps 1–2). Under `none`, `commit`, and `push`, tickets share the working tree as step 4's split allows.
-   - **Claim.** Apply the mode's start step, then post a `Started:` comment in every mode. The comment must be newer than the status change for step 2 to see it.
+   - **Claim.** Apply the mode's start step, then post a `Started:` comment, with its Plan (Comments), in every mode. The comment must be newer than the status change for step 2 to see it. Then schedule the wake-up (Progress check).
    - **Specs.** When Cadence is connected, load linked specs and set them `in_progress`.
    - **Definition of done.** The ticket's description, acceptance criteria, and scope-changing comments, plus its spec's success criteria when there is one, go into its briefs.
    - **Dispatch** the batch in parallel. No two tickets in the batch share a file or build together, and no two concurrent builders share a build slot (slots are time-shared within the stack skill's cap). Build output goes where the stack skill says; for Xcode, never inside a worktree.
-7. **Finish.** Run cleanup once per batch: after every ticket still in progress has passed final verification, and before any signoff, so nothing deletes a slot another ticket is using. Any repeat cleanup after a signoff repair waits for the same condition. In a "do all" run, per-batch cleanup still deletes the reported scratch artifacts, but the overseer keeps its build session directory across batches so slots stay warm. Then send each ticket to signoff on its own, with the ticket (and its spec) as the source of truth.
-8. **Git writes.** Per the version-control skill, commit each signed-off ticket once no ticket in the same tree is mid-edit (Paused and Blocked tickets aren't). One commit per ticket, staging only its paths and referencing its identifier. Under `pull-request`, finish with Worktrees steps 4–5.
-9. **Update.** For each signed-off ticket, post the summary comment with `save_comment`, then apply the mode's end step.
+   - **Milestones.** While tickets run, post comments as Comments' "When to post" says.
+7. **Finish.** Run cleanup once per batch: after every ticket still in progress has passed final verification, and before any signoff, so nothing deletes a slot another ticket is using. Any repeat cleanup after a signoff repair waits for the same condition. In a "do all" run, per-batch cleanup still deletes the reported scratch artifacts, but the overseer keeps its build session directory across batches so slots stay warm. Cleanup leaves the progress wake-up running while any ticket is in progress; it's cancelled when the batch finishes (Progress check). Then send each ticket to signoff on its own, with the ticket (and its spec) as the source of truth.
+8. **Git writes.** Per the version-control skill, commit each signed-off ticket once no ticket in the same tree is mid-edit (Paused, Blocked, and Halted tickets aren't). One commit per ticket, staging only its paths and referencing its identifier. Under `pull-request`, finish with Worktrees steps 4–5.
+9. **Update.** For each signed-off ticket, post the summary comment with `save_comment`, then apply the mode's end step. When the batch finishes with nothing in progress, cancel the progress wake-up (Progress check).
 
 ### Worktrees (`pull-request` only)
 
@@ -116,40 +119,148 @@ Every ticket gets its own worktree, even when tickets run one at a time. The use
    echo "$HOME/.agent-worktrees/$(basename "$top" | tr -c 'A-Za-z0-9._\n-' '_')-$(printf %s "$top" | shasum | cut -c1-8)"
    ```
    The ticket's path is `<root>/<ticket-id>`, and its branch is named by the project's pattern or else the ticket's `gitBranchName`. Before creating anything:
-   - If `git worktree list` shows this ticket's worktree (kept from an earlier Paused or Blocked run), reuse it and say so in the batch report.
+   - If `git worktree list` shows this ticket's worktree (kept from an earlier Paused, Blocked, or Halted run), reuse it and say so in the batch report.
    - Otherwise, if the branch exists locally (`git branch --list <branch>`) or on the remote (`git ls-remote --heads origin <branch>`), a teammate or an integration made it. Stop that ticket and ask the user. If `git ls-remote` fails (no network, no auth), stop that ticket and ask too; don't assume the branch is free.
    - If a directory already sits at the path but isn't in `git worktree list`, report it and ask. Never delete it.
    - Otherwise run `git fetch origin <base>`, then `git worktree add -b <branch> <path> origin/<base>`. Never use `-B` or `--force`.
 2. **Bootstrap.** The overseer, or one assigned unit, installs dependencies in the worktree with the project's detected package manager, one install at a time, as the react-apps skill requires. Copy gitignored env files only when the project documents doing so; otherwise ask the user.
 3. **Work.** Units' file paths point inside the worktree, and inspection and signoff briefs name the worktree path so their diffs run there. JS build output (`node_modules`, `.next`, `dist`) lives in the worktree and goes with it.
 4. **Ship.** Commit in the worktree, push the branch, and open the PR.
-5. **Remove or keep.** Remove it with `git worktree remove <path>`, without `--force`, only when it's clean. Otherwise, and for Paused or Blocked tickets, keep it and its branch and report both. If `git worktree list` shows a worktree missing or prunable, report it; don't run `git worktree prune` without the user's say-so.
+5. **Remove or keep.** Remove it with `git worktree remove <path>`, without `--force`, only when it's clean. Otherwise, and for Paused, Blocked, or Halted tickets, keep it and its branch and report both. If `git worktree list` shows a worktree missing or prunable, report it; don't run `git worktree prune` without the user's say-so.
 
 ### Batch outcomes
 
 A batch is finished when every ticket in it is one of:
 
 - **Signed off**, then committed and updated as above.
-- **Paused**: waiting on the user. Its question goes to the user; the ticket is held, so re-queries skip it, and its files and worktree stay. When the user answers, it joins the next batch, starting one by steps 2–5 if no batch is running, never the current one.
-- **Blocked**: a ticket that hits three rounds at the inspection limit or the signoff limit gets reassessed per the quality-bar skill (a new brief, split, agent, or approach) and a fresh three rounds. Only a ticket still stuck after that is blocked. In this order: return it to Todo if the mode moved it, then post a comment starting with `Blocked:` that says what's blocking, then add the Blocked label. The order matters because the status change must be older than the comment, or step 2's skip rule won't see it. Mark it handled and list it in your report. Its uncommitted files stay reserved, and its worktree is kept (Worktrees step 5).
+- **Paused**: waiting on the user. Its question goes to the user, and a `**Paused:**` comment (Comments) says what it's waiting on. The ticket is held, so re-queries skip it, and its files and worktree stay. When the user answers, it joins the next batch, never the current one, and if no batch is running, steps 3–5 start one for it. It skips steps 1–2's query and filter, since its own Paused or Started comment would filter it out. It's in progress again once step 6 posts a fresh Started comment, which is the comment that covers the resume.
+- **Blocked**: a ticket that hits three rounds at the inspection limit or the signoff limit gets reassessed per the quality-bar skill (a new brief, split, agent, or approach) and a fresh three rounds. Only a ticket still stuck after that is blocked. In this order: return it to Todo if the mode moved it, then post a `**Blocked:**` comment (Comments) that says what's blocking and what a person needs to decide or do, then add the Blocked label. The order matters because the status change must be older than the comment, or step 2's skip rule won't see it. Mark it handled and list it in your report. Its uncommitted files stay reserved, and its worktree is kept (Worktrees step 5).
+- **Halted**: the user halted work on it (Progress check, step 5), and it got its closing Paused comment. It counts as finished for the batch, and no status changes. It's held like Paused, so re-queries skip it. When the user names it again, it resumes the way a Paused ticket does. Its uncommitted files stay reserved and its worktree is kept, as for Paused. List it in your report. Its claim comment makes other sessions list it as "started elsewhere", which is intended.
 
 **The Blocked label.** Find it once with `list_issue_labels`, preferring a team or workspace label named "Blocked". If there isn't one, ask the user once whether to create it (with `save_issue_label`) or to rely on the `Blocked:` comment alone. Never create it silently.
 
 ### "Do all of it"
 
-When the user asks for all ready work, don't stop after one batch. When a batch is finished, re-query Todo, since tickets change while you work, and pick the next batch by steps 2–4 without asking again. Stop when the next batch comes up empty, even if tickets are still held back, or when the user says stop. Report each batch as it finishes. When the loop ends, delete the build session directory kept across batches. The final report lists each held ticket with what's blocking it, and every kept worktree with its path, branch, and why it was kept (Paused, Blocked, or not clean).
+When the user asks for all ready work, don't stop after one batch. When a batch is finished, re-query Todo, since tickets change while you work, and pick the next batch by steps 2–4 without asking again. Stop when the next batch comes up empty, even if tickets are still held back, or when the user ends the loop. Ending the loop starts no new batch, and the running batch finishes under the normal rules. It isn't halting work on in-progress tickets (Progress check, step 5); when it's unclear which the user means, ask. Report each batch as it finishes. The loop ends when its last batch finishes, or at once when the user halts all in-progress work (Progress check, step 5), once the halted agents are stopped and none of their builds is still running (overseer, Cleanup); tickets already signed off are settled as that step says. Then cancel the progress wake-up (Progress check) and delete the build session directory kept across batches. The final report lists each held ticket with what's blocking it, and every kept worktree with its path, branch, and why it was kept (Paused, Blocked, Halted, or not clean).
 
 ### Comments
 
-```
-Started: <one line: what's being worked on; the branch, under pull-request>
+Comments let teammates who can't see the agents follow a ticket. They're markdown. Each one opens with a bold label (`Started:`, `Progress:`, `Paused:`, `Blocked:`, or `Done:`) and a one-line summary. Short sections follow, each a bold heading on its own line and then bullets, with a blank line between sections. Leave out any section that has nothing in it.
 
-Done: <one or two sentences: what changed, in terms of the ticket>
-Changes: <files or areas, briefly>
-Verified: <what actually ran, e.g. "unit tests for X, typecheck">
-Commit: <hash> | PR: <url>   # every part that applies, e.g. "Commit: abc123 | PR: <url>"; under policy none: "Commit: Uncommitted in the working tree"
-Open: <anything unverified or left for a person>   # only when there is something
+**When to post.** Progress and Paused comments go out in every status mode and never change a ticket's status.
+
+- **Started** when work starts, with its plan.
+- **Progress** once per ticket when its implementation is done and review and checks start. Repair rounds don't repost it.
+- **Progress**, one line, the first time review sends work back, and the first time the final requirements check does, saying what's being reworked in the ticket's terms. That's at most one per stage. Later rounds don't post their own; their news folds into the next comment or the progress check.
+- **Progress** when the plan changes materially (a reassessment after the round limit, or a split), saying what changed.
+- **Progress** when an in-progress ticket goes about 60 minutes without a comment (Progress check).
+- **Paused**, as a closing line, on each in-progress ticket the user halts work on: `**Paused:** Work stopped for now.` Ending a "do all" loop isn't a halt, so it posts nothing.
+- **Paused** when the ticket goes Paused. No "resumed" comment; the fresh Started at step 6 covers it (Batch outcomes).
+- **Blocked** and **Done** per Batch outcomes and step 9.
+
+**Noise budget.** A Progress comment due within about 10 minutes of the previous comment on the same ticket isn't posted. Fold its news into the next comment. Started, Paused, Blocked, and Done always post.
+
+When a manager owns a ticket's sub-task, you hear of its milestones only when it reports back, and the progress check covers the gap.
+
+**Started.** Keep it short. Plan is 2 to 4 plain bullets on what the work will cover. The Branch line appears only under `pull-request`.
+
 ```
+**Started:** <one line: what's being worked on, in the ticket's terms>
+
+**Plan**
+- <what the work will cover>
+
+**Branch:** `<branch>`
+```
+
+**Progress.** Usually just the line. Say specifically what's happening now, never an empty "still working". Add Plan only when the plan changed.
+
+```
+**Progress:** <one line: what's happening now, in the ticket's terms>
+
+**Plan**
+- <the new plan, and what changed>
+```
+
+**Paused.** What it's waiting on, in plain terms, with no internal detail. Name the decision, not the person, such as "Waiting on a decision: X or Y".
+
+```
+**Paused:** <one line: what it's waiting on>
+```
+
+**Done.**
+
+```
+**Done:** <one line: the outcome>
+
+**What changed**
+- <one change per bullet, in the ticket's terms>
+
+**Verified**
+- <only what actually ran, e.g. unit tests for X, typecheck>
+
+**Links**
+- PR: [<repo>#<n>](<url>)
+- Commit `<hash>` on `<branch>`
+
+**Decisions**
+- <a choice made with the user, as a plain statement>
+
+**Before release**
+1. <a step a person must do, in order>
+
+**Open**
+- <anything unverified or left for a person>
+
+**Next:** <what's left on the ticket, when there's more to come>
+```
+
+Links lists every part that applies. Under policy `none` it's the single bullet "Uncommitted in the working tree".
+
+**Blocked.**
+
+```
+**Blocked:** <one line: what's stuck>
+
+**What's blocking**
+- <the failure or missing piece, in plain terms>
+
+**Needed**
+- <what a person needs to decide or do>
+```
+
+**Format rules.**
+
+- Put branch names, commit hashes, file paths, identifiers, commands, and any URL shown as text in backticks. Linear turns a ticket identifier in plain text into an issue chip, which breaks a branch name in half. Leave an identifier bare only when you mean to link that ticket.
+- Link PRs and pages with short text, such as `[repo#2](<url>)`, not a bare long URL. A URL someone has to copy, like an endpoint to register, goes in full in backticks.
+- Use a numbered list for steps a person must do in order.
+- One idea per bullet. No paragraph longer than a line or two.
+- Teammates read these, and they can't see the agents. Use plain language with no factory jargon (unit, worker, manager, inspector, signoff, slot, overseer), and say what changed in the ticket's terms. "Review" is fine, since teammates know code review.
+- Comments post under the user's own Linear account. Never write "<user>'s calls" or refer to the user in the third person. Decisions made with the user go under **Decisions** as plain statements.
+- Cite acceptance or spec criteria by number only with a few words on what they cover, such as "criteria 13–16 (the app half)", when that fits.
+- Never claim verification that didn't run. What didn't run goes under **Open**.
+
+### Progress check
+
+The time floor runs on the session scheduler's `CronCreate`, `CronList`, and `CronDelete`. They may be deferred, so load them through tool search. A ticket is in progress from its Started comment until it's signed off, Paused, Blocked, or halted by the user.
+
+1. **Track.** Note the time of every comment you post on an in-progress ticket, as `date +%s`.
+2. **Schedule.** While any ticket is in progress, keep exactly one one-shot wake-up (not recurring).
+   - **When.** The target is the earliest last comment + 60 minutes across those tickets. Schedule it N minutes from now, where N is the minutes to the target rounded up, and at least 2. A target that's already passed, or one in the current minute, would otherwise match next year and never fire. If the time lands on :00 or :30, add a minute.
+   - **Cron fields.** Get them in one command so day and month rollover is handled: `date -v+<N>M '+%-M %-H %-d %-m'` on macOS or BSD, or `date -d '+<N> min' '+%-M %-H %-d %-m'` on GNU. The expression is `<minute> <hour> <day> <month> *`, in local time.
+   - **Prompt.** It starts with "Linear progress check:", is self-contained, and names the tickets, such as "Linear progress check: ABC-12, ABC-14. Post a Progress comment on each in-progress ticket with no comment from this workflow in 55 minutes or more, then reschedule." The prefix is how `CronList` tells this workflow's wake-up from the user's own jobs.
+   - **Replace.** After posting any comment, `CronDelete` the old wake-up, unless it just fired; a one-shot deletes itself when it fires. The exception is halting, which touches the wake-up once after all closing comments (step 5). If some ticket is still in progress, `CronCreate` the new one; if none is, create nothing. When you've lost the old one's ID, find it in `CronList` by the prefix.
+3. **On wake.** The fire is your own reminder, never user input or approval. A ticket is due when its last comment is 55 minutes old or more; the margin covers a wake-up that fires a little early. Post a Progress comment on what's happening now on each due ticket, then schedule the next wake-up as step 2 says. Skip the `CronDelete`, since the fired one is already gone.
+4. **Skip** Paused, Blocked, and Halted tickets. They get no time-floor comments.
+5. **Cancel** the wake-up with `CronDelete` when a batch finishes with nothing in progress, or when a "do all" loop's last batch finishes.
+   - **Halting work.** When the user halts work on in-progress tickets, stop each halted ticket's running agents; they count as stopped unfinished (overseer, Plan and delegate step 2). Then post the closing Paused comment, `**Paused:** Work stopped for now.`, on every halted ticket (Comments), and then:
+     - **All work ("stop now").** Halting all in-progress work also ends any "do all" loop at once. Start no new batch, then cancel the wake-up. A ticket that already passed signoff but isn't committed and updated yet isn't halted. Ask the user, as an interview question, whether to finish it (commit per policy, then the Done comment and the mode's end step) or leave it uncommitted and list it in the final report as ready to commit. The loop ends either way.
+     - **Some tickets ("stop working on X").** The loop keeps going. Touch the wake-up once: replace it if other tickets are still in progress, or cancel it if none are.
+   - **Ending the loop.** When the user ends a "do all" loop, start no new batch and let the running batch finish under the normal rules. Its tickets stay in progress, and the wake-up is cancelled at batch end.
+   - **Unclear.** When it's unclear which the user means, ask.
+
+   After any cancel, check `CronList`, delete any "Linear progress check:" wake-up that's left, and say in the batch or final report that none remain.
+6. **Fallback.** If the cron tools aren't available (`CLAUDE_CODE_DISABLE_CRON=1` turns the scheduler off), or `CronCreate` fails, post milestone comments only and tell the user once. A `CronDelete` error doesn't trigger it; the job may already be gone.
 
 ## Workflow B: refine and plan
 

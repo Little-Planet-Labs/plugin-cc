@@ -10,7 +10,7 @@
       "name": "little-planet-factory",
       "displayName": "Little Planet Factory",
       "description": "Little Planet Factory agents for Claude Code.",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "author": {
         "name": "Little Planet Labs"
       },
