@@ -12,37 +12,70 @@ The first question is which file is the source of truth for the project structur
 
 - **XcodeGen** (`project.yml`) or **Tuist** (`Project.swift`, `Tuist/`). The `.xcodeproj` is generated, and often gitignored. Never edit `project.pbxproj`. Change the spec, then regenerate (`xcodegen generate`, `tuist generate`). Targets, settings, dependencies, and file membership all live in the spec.
 - **Swift package only** (`Package.swift`, no `.xcodeproj`). Use `swift build` and `swift test`, or `xcodebuild` with the package's scheme when platform-specific SDKs are involved.
-- **Hand-maintained `.xcodeproj`.** Check whether it uses folder-synchronized groups: `grep -c PBXFileSystemSynchronizedRootGroup <proj>/project.pbxproj`. If it does, files added under a synchronized folder join the target automatically. If it doesn't, a new source file must be registered in `project.pbxproj` (file reference, group entry, build-file entry, and target sources phase). Prefer a tool the project already uses for that, such as the `xcodeproj` gem or a script. If you have to hand-edit, copy the structure of an existing entry exactly, with new unique IDs, and confirm the project still opens with `xcodebuild -list -derivedDataPath <your DerivedData path>`.
+- **Hand-maintained `.xcodeproj`.** Check whether it uses folder-synchronized groups: `grep -c PBXFileSystemSynchronizedRootGroup <proj>/project.pbxproj`. If it does, files added under a synchronized folder join the target automatically. If it doesn't, a new source file must be registered in `project.pbxproj` (file reference, group entry, build-file entry, and target sources phase). Prefer a tool the project already uses for that, such as the `xcodeproj` gem or a script. If you have to hand-edit, copy the structure of an existing entry exactly, with new unique IDs, and confirm the project still opens with `xcodebuild -list -scheme <any shared scheme> -derivedDataPath <your DerivedData path>`.
 - **Workspace** (`.xcworkspace`, usually alongside CocoaPods or multiple projects). Build with `-workspace`, not `-project`.
 
-Then list what's buildable. `xcodebuild -list -derivedDataPath <your DerivedData path>` (with `-workspace` or `-project`) gives the schemes, targets, and configurations. Pick the scheme that matches the change, and note any test plan (`.xctestplan`) the scheme uses.
+Then list what's buildable. Shared scheme names are in `<proj>.xcodeproj/xcshareddata/xcschemes` (or the workspace's). `xcodebuild -list -scheme <any of them> -derivedDataPath <your DerivedData path>` (with `-workspace` or `-project`) then gives every scheme, target, and configuration. Pick the scheme that matches the change, and note any test plan (`.xctestplan`) the scheme uses.
 
-Put what you found in every brief: the project definition, the scheme, the destination, the DerivedData path as an exact absolute path (`main` or an assigned slot, see DerivedData below), and the exact build and test commands. That includes every brief whose agent may build or run tests: workers, managers, inspectors, and researchers.
+Put what you found in every brief: the project definition, the scheme, the destination, the DerivedData path as an exact absolute path (`main` or an assigned slot, see DerivedData below), the `-jobs` value, and the exact build and test commands. That includes every brief whose agent may build or run tests: workers, managers, inspectors, and researchers.
 
 ## Build and test from the command line
 
-Never open Xcode or launch the app on the user's behalf unless they ask. Verification runs through `xcodebuild`, which exits when it's done.
+Never open Xcode or launch the app on the user's behalf unless they ask. Verification runs through `xcodebuild`, which exits when it's done. A test target with a host app launches that app, so on the Mac it runs as the user's real app; see Choosing a test destination.
 
 ```
-xcodebuild build \
+taskpolicy -c utility nice -n 10 xcodebuild build \
   -scheme <Scheme> \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath <root>/main \
+  -jobs <jobs> \
   CODE_SIGNING_ALLOWED=NO
 
-xcodebuild test \
+# <destination>: 'platform=iOS Simulator,id=<UDID>', or a Mac destination where allowed (see below)
+taskpolicy -c utility nice -n 10 xcodebuild test \
   -scheme <Scheme> \
-  -destination 'platform=iOS Simulator,id=<UDID>' \
+  -destination '<destination>' \
   -derivedDataPath <root>/main \
+  -jobs <jobs> \
+  -parallel-testing-enabled NO \
   -only-testing:<TestTarget>/<TestClass>
 ```
 
-- **Every `xcodebuild` command passes `-derivedDataPath`**, including `-list`, `-showBuildSettings`, and `-showdestinations`, with the exact absolute path your brief names. Only commands that write no DerivedData, such as `-downloadPlatform`, are exempt. The path is `<root>/main`, as above, or your assigned slot. Never build without it. The default is the same folder the user's open Xcode uses, so building there can fail either side with `unable to attach DB ... build.db: database is locked` and throws away each other's incremental state. If your brief names no DerivedData path, ask your lead or report it. Don't fall back to the default or pick a folder yourself.
+- **Every `xcodebuild` command passes `-derivedDataPath`**, including `-showBuildSettings` and `-showdestinations` (both with `-scheme`), with the exact absolute path your brief names. `-list` needs `-scheme` alongside it (without one it rejects the flag), so use a bare `-list` only when there's no shared scheme; it writes logs and package-resolution state to the default folder. `-downloadPlatform` writes no DerivedData and is exempt. The path is `<root>/main`, as above, or your assigned slot. Never build without it. The default is the same folder the user's open Xcode uses, so building there can fail either side with `unable to attach DB ... build.db: database is locked` and throws away each other's incremental state. If your brief names no DerivedData path, ask your lead or report it. Don't fall back to the default or pick a folder yourself.
+- **Run at low priority, with capped parallelism.** Prefix every `xcodebuild` and `swift build`/`swift test` with `taskpolicy -c utility nice -n 10`, so the user's own work and Xcode stay responsive. Keep it on the command's first line, as the template does. The prefix clamps the process tree to utility QoS and lowers its niceness, and it reaches the compilers (measured on Xcode 27: `xcodebuild`'s own `SWBBuildService` child, `swift-frontend`, `clang`, `ld`, and the macOS `xctest` runner all ran at nice 10, priority 20). It does **not** reach anything launchd starts: the simulator runtime, a test host app running in a simulator, `testmanagerd`, or the Xcode app's own build service. A clamped build can take noticeably longer while the machine is busy; that's the trade. `nice` alone barely moves the compilers, so keep both.
+- **`-jobs <jobs>`** caps concurrent build tasks (by default `xcodebuild` runs one compiler per core). The lead (or you, when there's none) computes it once as half the cores, `echo $(( $(sysctl -n hw.ncpu) / 2 ))`, using 1 if that prints 0, and puts the number in the brief, so with at most two concurrent slots (see DerivedData) agent builds stay within the core count. For `swift build` and `swift test` the flag is `--jobs <jobs>`.
 - **Compile-only checks** use a generic destination (`generic/platform=iOS Simulator`, `platform=macOS`), so no simulator needs to boot.
-- **Tests** need a concrete simulator. Pick one by UDID from `xcrun simctl list devices available`. Don't pick by name alone, because names repeat across runtimes.
-- **Scope tests** with `-only-testing:` for workers. The lead runs the scheme's full tests on the integrated change.
+- **Tests** without a host app run on the Mac; see Choosing a test destination below. A simulator boots a whole iOS runtime outside the priority clamp.
+- **Scope tests** with `-only-testing:` for workers, and pass `-parallel-testing-enabled NO` so a single test class doesn't spread across cloned simulators. For `swift test`, the equivalents are `--filter <TestTarget>.<TestClass>` and `--no-parallel`. The lead runs the scheme's full tests on the integrated change, with the scheme's own parallel setting and the destination the project's CI or test plan uses, when one is defined. The hosted-test rule below applies to that run too: a Mac destination from CI or a test plan is used only for host-free targets, or with the opt-in or the user's yes (step 2).
 - **Read failures from the output.** Pass `-quiet`, or pipe through `xcbeautify` if it's installed, to cut the noise. Add `-resultBundlePath` under your scratch directory when you need structured failure detail, and list the `.xcresult` bundle's absolute path in your report. Don't delete it; the overseer decides. The first `error:` line matters more than the final `** BUILD FAILED **`.
 - **Swift packages** resolve on the first build. If resolution fails, run `xcodebuild -resolvePackageDependencies` once, with the same `-derivedDataPath`, and report it if it still fails. Don't delete `Package.resolved` to make it go away.
+
+### Choosing a test destination
+
+First find out whether the test target has a host app. Only the `test` action lists test targets, so run `xcodebuild test -showBuildSettings -scheme <Scheme> -derivedDataPath <path> | grep -E '^Build settings for|PRODUCT_TYPE =|TEST_HOST ='`, and classify each target by its `PRODUCT_TYPE`:
+
+- `com.apple.product-type.bundle.ui-testing` is always hosted. UI tests have no `TEST_HOST`; they launch the app named by `TEST_TARGET_NAME`.
+- `com.apple.product-type.bundle.unit-test` with a `TEST_HOST =` line is hosted.
+- `com.apple.product-type.bundle.unit-test` without one is host-free.
+- Any other product type (the app, frameworks) isn't a test target; ignore it.
+
+Swift package tests are host-free.
+
+Then, for an agent's scoped test run:
+
+1. **Host-free tests run on the Mac.** `swift test` for a package with no platform-specific SDKs, otherwise `xcodebuild test -destination 'platform=macOS'`, or a Mac variant from step 3 when the target builds only for iOS.
+2. **Hosted tests run on a simulator**, unless the project's `CLAUDE.md` opts in with this line under an `## Xcode` heading:
+   ```
+   mac-hosted-tests: allowed
+   ```
+   On the Mac, the host app runs under the user's account, with a window, their sandbox container, UserDefaults, Keychain, and signed-in iCloud, so tests could change or sync real data. Designed for iPad also installs the app. Without the line, never run a hosted test on a Mac destination, except with the user's yes for this task, below. If there's no simulator destination either, as in a macOS-only app, ask the user each time before running hosted or UI tests on the Mac. Only the overseer asks, as an interview question that says in one line that the tests run as the real app with their data, and names `mac-hosted-tests: allowed` as the `CLAUDE.md` line that stops the question; other agents don't run those tests and report them to their lead as a question for the user. A yes allows the Mac run for that task only; a no means they're reported as unverified.
+3. **Mac destinations**, for host-free tests or with the opt-in or the user's yes (step 2). Use one only if `xcodebuild -showdestinations -scheme <Scheme> -derivedDataPath <path>` already lists it:
+   - A macOS target → `-destination 'platform=macOS'`.
+   - `variant:Mac Catalyst` → `-destination 'platform=macOS,variant=Mac Catalyst'`.
+   - `variant:Designed for [iPad,iPhone]` → `-destination 'platform=macOS,variant=Designed for iPad'`. Don't copy the bracketed form; the comma breaks parsing (`unreadable input 'iPhone]'`). This destination installs the app on the Mac, so it needs the project's own development signing: don't pass `CODE_SIGNING_ALLOWED=NO` (install fails with `its integrity could not be verified`) or `-allowProvisioningUpdates`. If it fails on signing or provisioning, use a simulator; that includes host-free, iOS-only test bundles on this destination.
+4. **Simulators.** Pick one that isn't booted, by UDID from `xcrun simctl list devices available`, not by name, because names repeat across runtimes. Don't boot it with `xcrun simctl boot`; `xcodebuild test` boots it.
+
+Never change supported platforms or destinations, `SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD`, Catalyst settings, or signing to make a Mac destination appear. Some tests need the simulator: UIKit-only or device-behavior APIs, simulator state, and tests that fail only on the Mac variant. When a Mac run fails for platform reasons rather than because of the change, rerun on a simulator and say so in your report. Don't change tests to make them pass on the Mac.
 
 ### Environment failures, not code failures
 
@@ -72,7 +105,7 @@ Two `xcodebuild` processes sharing a DerivedData folder contend for its build da
   printf %s "$sid" | grep -Eqx '[0-9A-Fa-f-]{32,36}' && echo "$sid"
   ```
   If it prints nothing, run `uuidgen` once, write the result to `<scratch dir>/session-id`, read it from there for the rest of the session, and say so in the cleanup record. Never build directly under `sessions/`.
-- **Slots.** Only the overseer (or the main session when there is none) creates `<root>/sessions/<session-id>/` and its slots, and no other session touches them. It gives each concurrent builder a slot by absolute path. N is at most 2 unless the overseer has measured that the machine handles more. A manager hands out only the slots in its brief, to its workers, inspectors, and researchers, and uses `main` itself only when its brief says so. Keep the same slot across repair rounds and re-inspections, and never create a folder per agent or per round. A slot is free for another agent once its holder has reported back or been stopped, and the check exits 1.
+- **Slots.** Only the overseer (or the main session when there is none) creates `<root>/sessions/<session-id>/` and its slots, and no other session touches them. It gives each concurrent builder a slot by absolute path. N is at most 2 unless the overseer has measured that the machine handles more; each slot's builds pass `-jobs` at half the cores (see Build and test), or the core count divided by N when N is larger. A manager hands out only the slots in its brief, to its workers, inspectors, and researchers, and uses `main` itself only when its brief says so. Keep the same slot across repair rounds and re-inspections, and never create a folder per agent or per round. A slot is free for another agent once its holder has reported back or been stopped, and the check exits 1.
 - **Cleanup.** Only the overseer deletes build output. Every other agent lists what it created in its report as absolute paths, including `-resultBundlePath` bundles and any folder the brief didn't assign, and a manager passes its agents' lists up. The overseer deletes `<root>/sessions/<session-id>` as one path once `pgrep -fl -- "-derivedDataPath <root>/sessions/<session-id>/"` exits 1, following the limits in its Cleanup section. It never deletes `main`, the root, `<root>/sessions`, or another session's directory. A crashed session leaves its directory behind, so the overseer lists `sessions/*` directories that are older than a few days and idle by the same check, and the user decides.
 
 ## Simulator etiquette
@@ -81,6 +114,7 @@ The user may have a simulator open for their own work.
 
 - Never target the simulator the user is using, and never run `xcrun simctl shutdown all`, `erase all`, or `delete unavailable`. Those hijack or destroy the user's session. Check `xcrun simctl list devices booted` first.
 - For tests, use a simulator that isn't booted. If the project's test setup needs a dedicated device, create one (`xcrun simctl create`), use it, and say so in the report.
+- Don't pre-boot with `xcrun simctl boot`. After the run, if the device you used is still booted and was shut down before you started, or you created it, run `xcrun simctl shutdown <UDID>`. Never shut down a device that was already booted.
 - Don't erase a simulator or change its settings, locale, or accounts unless the brief calls for it. Tests that depend on simulator state (iCloud sign-in, permissions, locale) are an environmental precondition to report, not something to force.
 
 ## What not to touch
