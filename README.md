@@ -73,9 +73,9 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 **Worker** (`little-planet-factory:worker`) implements one unit. It stays inside the files it was assigned, matches the surrounding code's conventions, runs targeted checks, and reports what it changed and what it assumed. It can't spawn other agents.
 
-**Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups, build output left behind without a reason), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF.
+**Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups, build output left behind without a reason), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF. Under `pull-request`, it runs a second pass once the PR is open and its comments are triaged. It reads the PR itself and checks that every review comment was fixed or answered, and the work isn't reported done until that pass signs off too.
 
-**Inspector** (`little-planet-factory:inspector`) reviews a change against its definition of done: brief compliance, correctness, security, efficiency, tooling, whether units from different agents fit together, and maintainability for broad changes. It's read-only. It returns a PASS / PASS WITH NOTES / FAIL verdict with each blocking finding tied to a file, and the lead sends that finding back to whoever owns the file. You can also call it directly for a review.
+**Inspector** (`little-planet-factory:inspector`) reviews a change against its definition of done: brief compliance, correctness, security, efficiency, tooling, whether units from different agents fit together, and maintainability for broad changes. It's read-only. When the [Codex plugin](#optional-integrations) is set up, it also runs a Codex review alongside its own and keeps only the Codex findings it confirms. It returns a PASS / PASS WITH NOTES / FAIL verdict with each blocking finding tied to a file, and the lead sends that finding back to whoever owns the file. You can also call it directly for a review.
 
 ### Models
 
@@ -94,7 +94,7 @@ The overseer applies this to each unit and again to the combined change, since s
 
 ### Skills
 
-The agents share nine skills beyond the platform guidance.
+The agents share ten skills beyond the platform guidance.
 
 **Version control** (`version-control`) is preloaded into every agent. Before any git command that changes state, the agents work out the project's policy, then stay inside it:
 
@@ -117,7 +117,9 @@ commit-style: conventional
 merge: never
 ```
 
-Only `policy` is required. GitHub operations go through the `gh` CLI, one bare command per call, with no loops, polling scripts, or chained writes. Under every policy, the agents stage explicit paths, never force-push, never skip hooks, never change git config, and never discard work they didn't create. Only the overseer runs git writes, once the work passes verification and inspection. Managers and workers never commit, because they share a working tree with agents still in flight.
+Only `policy` is required. GitHub operations go through the `gh` CLI, one bare command per call, with no loops, polling scripts, or chained writes. The one exception is the Copilot review wait below, a bounded, read-only loop that runs in the background. Under every policy, the agents stage explicit paths, never force-push, never skip hooks, never change git config, and never discard work they didn't create. Only the overseer runs git writes, once the work passes verification and inspection. Managers and workers never commit, because they share a working tree with agents still in flight.
+
+**Copilot review.** When the agents open a PR on github.com, the overseer requests a GitHub Copilot review with `gh` (2.88 or newer), unless the repo already asked for one, and waits for it in the background for up to about 15 minutes. Then it triages every comment on the PR: review threads, review summaries, and conversation comments, from Copilot or anyone else, you included. Valid ones are fixed through the usual worker and inspection flow, pushed to the PR branch, and their threads resolved. The rest get a short reply saying why they don't apply and stay open for a person to weigh in. Replies post under your GitHub account. A PR gets at most two Copilot rounds, and signoff then checks the PR itself before the work is reported done. If Copilot isn't available, or `gh` is older than 2.88, the overseer notes it and still triages the comments. On another forge or GitHub Enterprise Server, or when no PR was opened, comments aren't checked, and a one-line note says so.
 
 **React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and no taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review. Agents build Xcode projects at low priority, with all agent builds together capped at half the cores, in a per-repository DerivedData folder outside Xcode's default and excluded from Time Machine, and run scoped tests with no host app on the Mac instead of a simulator. Tests hosted in your app, including UI tests, run on the Mac only if your `CLAUDE.md` has `mac-hosted-tests: allowed` under an `## Xcode` heading. For a Mac-only app without it, the overseer asks you first. The overseer assigns per-session slots for concurrent builds and cleans them up. Units in one app (with its frameworks and local packages) or one TypeScript project build together, so they run one after another.
 
@@ -139,9 +141,11 @@ Everything else gets the normal inspection heuristic. Every repair diff is re-re
 
 **Linear** (`linear`) needs the Linear MCP connected. It loads when the project's `CLAUDE.md` has a `## Linear` block or you ask the overseer to work or refine tickets in Linear. The block names the project and a status mode: `comment-only` (the default), `to-review`, or `to-done`. Unassigned Todo tickets are ranked by priority and, once you confirm them, run in batches of up to four that don't touch the same files or build together, with each other or with a paused, blocked, or halted ticket's unfinished work. Backlog tickets are refined with you and moved to Todo. Only the overseer writes to Linear. The overseer posts formatted Started, Progress, Paused, Blocked, and Done comments so teammates can follow along, plus a progress note when a ticket goes about an hour without one, when the session's scheduler is available.
 
+**Codex review** (`codex-review`) is preloaded into the inspector, the only agent that uses it. It runs the optional Codex second review described under [Optional integrations](#optional-integrations).
+
 ### Optional integrations
 
-The agents use two MCP servers when they're connected and work normally without them. The `linear` skill is the exception: it needs the Linear MCP and stops if it isn't connected.
+The agents use two MCP servers, Cadence and Telescope, and one Claude Code plugin, Codex, when they're available, and work normally without them. The `linear` skill is the exception: it needs the Linear MCP and stops if it isn't connected.
 
 **[Cadence](https://cadencecode.dev/)**
 - **Knowledge vault.** Agents search it before non-trivial work. The inspector checks changes against decisions stored there. The overseer saves new durable knowledge.
@@ -152,7 +156,13 @@ The agents use two MCP servers when they're connected and work normally without 
 - **Upstream incidents.** Before debugging a failure that involves an external service, agents check Telescope for a live incident at that provider.
 - **Matched incident.** If there is one, the agent reports it with a link to the provider's status page instead of changing code to work around it.
 
-Agents detect both servers by their tool names, so it doesn't matter what name you gave the server when you connected it.
+**[Codex](https://github.com/openai/codex-plugin-cc)**
+- **Second reviewer.** When the Codex plugin is installed, enabled, and signed in, the inspector runs a Codex review of the change alongside its own. Foundational or risky changes also get an adversarial review. Codex only reads the code, and only the inspector runs it.
+- **Confirmed findings only.** The inspector checks each Codex finding against the code. Only the ones it confirms are reported as findings, tagged `[Codex]`, and rejected ones get a one-line note. Codex never decides the verdict.
+- **Never a blocker.** If Codex runs out of usage, fails, or is slow, the inspection notes it in one line and carries on. Every wait is bounded.
+- **Not installed.** If Codex isn't installed or is disabled, nothing changes and nothing is mentioned.
+
+Agents detect Cadence and Telescope by their tool names, so it doesn't matter what name you gave the server when you connected it.
 
 ## Repository layout
 
@@ -171,6 +181,7 @@ plugins/little-planet-factory/
   skills/nextjs/                           Next.js conventions and defaults, loaded on demand
   skills/web-design/                       framework-agnostic SEO, icon, title, and design rules, loaded on demand
   skills/linear/                           Linear project workflows, loaded on demand
+  skills/codex-review/                     optional Codex second review, preloaded into the inspector
 ```
 
 ## Development
