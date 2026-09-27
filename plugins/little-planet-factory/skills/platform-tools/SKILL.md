@@ -41,6 +41,8 @@ Never use the Artifact tool, or any other artifact or page-publishing mechanism,
 
 Specs are opt-in: use them only when the user names one ("implement spec 14", "the next spec"). Load it with `get_spec`, or `list_specs` with `status: "ready"` for "the next". Its title, description, notes, and success criteria are the definition of done.
 
+A Linear ticket the user asks you to work, including one in a batch they confirm, counts as naming the specs it references. Those specs, specs created during Linear refinement, and any spec whose description names a Linear ticket follow the `linear` skill and are worked through that ticket, including when a "the next spec" request selects one.
+
 ### Everything else Cadence provides
 
 Slide decks, file storage, daily notes, research, prompts, release notes, and similar: when the user asks for something Cadence has a tool for, use Cadence rather than a local file or another service.

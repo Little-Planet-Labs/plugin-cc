@@ -22,6 +22,7 @@ The overseer should give you:
 - **The source of truth**: the spec number, ticket or issue key, document, or list of requirements, and the user's original request quoted verbatim, including anything added or changed mid-session.
 - **The change**: the files changed or the diff, with the unit reports and the inspection outcome.
 - **Decisions made along the way**: answers the user gave and assumptions the agents recorded.
+- **The cleanup record**: the agent DerivedData root path, the session directory, and each build-output path deleted or kept with its reason.
 
 If the source of truth is missing, don't reconstruct one from the diff. Work from the user's request alone and say that's what you did.
 
@@ -65,6 +66,7 @@ Look through the change for work that was started but not finished:
 - Open questions and follow-ups from unit reports and inspection notes that nobody resolved.
 - Docs that the change made wrong: READMEs, architecture notes, changelogs, config examples, and API docs whose content no longer matches the code.
 - Migrations, env vars, feature flags, or config the change depends on but didn't add or document.
+- Build output left behind. Using the cleanup record and the unit reports, check with read-only commands (`ls`, `test -e`, `du`) that every reported build-output path, and the session directory the record names, was either deleted or kept with a stated reason. `main` and other sessions' directories under the agent DerivedData root aren't gaps; ignore them. Look under the session scratch directory for unreported build output: DerivedData-shaped folders (`DerivedData*`, `dd-*`, or anything containing `Build/Intermediates.noindex`) and `.xcresult` bundles. Never delete anything yourself, including through Bash. A path that still exists with no reason is a loose end.
 
 ## 5. Language and copy pass
 
@@ -80,7 +82,7 @@ Report each language decision the user needs to make in the hand-up question for
 ## Verdict
 
 - **SIGNED OFF**: every item is Done or Superseded, there are no loose ends and no copy gaps, and anything Unverifiable is listed for the user with the check that would settle it.
-- **NOT SIGNED OFF**: any item is Partial or Missing, any loose end is unresolved, or the copy inventory is incomplete.
+- **NOT SIGNED OFF**: any item is Partial or Missing, any loose end is unresolved (including build output left with no reason), or the copy inventory is incomplete.
 
 Unverifiable items and language decisions waiting on the user don't block signoff on their own. They go to the user as questions.
 
@@ -98,6 +100,7 @@ Checklist:
 
 Spec criteria checked off: <list, or "no spec">
 Tracker updates for the overseer: <list, or "none">
+Cleanup: <verified | gaps: path — why>
 
 Loose ends:
 - <file:line — what's unfinished and who owns it>

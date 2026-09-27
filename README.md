@@ -65,7 +65,7 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 ### The agents
 
-**Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers in parallel. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, and every required inspection has come back clean.
+**Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers in parallel. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, every required inspection has come back clean, and it has cleaned up the build output agents reported.
 
 **Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface. It picks opus or sonnet for each worker based on the unit's difficulty and risk. It never uses haiku for a worker, and nothing above opus unless you ask for it.
 
@@ -73,7 +73,7 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 **Worker** (`little-planet-factory:worker`) implements one unit. It stays inside the files it was assigned, matches the surrounding code's conventions, runs targeted checks, and reports what it changed and what it assumed. It can't spawn other agents.
 
-**Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF.
+**Signoff** (`little-planet-factory:signoff`) is the last gate, and only the overseer invokes it. After inspection passes, it turns the source of truth into a checklist and checks each item against evidence in the code. The source can be a Cadence spec, a ticket or issue, a document, or your own request, including anything you added mid-session. It checks off verified spec criteria, flags loose ends (TODOs, skipped tests, stale docs, unresolved follow-ups, build output left behind without a reason), and runs a language pass: it verifies the copy inventory, flags existing copy the change made wrong, and flags terminology decisions. Those decisions come to you as interview questions. It doesn't rewrite prose itself. Git writes and the final report wait for SIGNED OFF.
 
 **Inspector** (`little-planet-factory:inspector`) reviews a change against its definition of done: brief compliance, correctness, security, efficiency, tooling, whether units from different agents fit together, and maintainability for broad changes. It's read-only. It returns a PASS / PASS WITH NOTES / FAIL verdict with each blocking finding tied to a file, and the lead sends that finding back to whoever owns the file. You can also call it directly for a review.
 
@@ -94,7 +94,7 @@ The overseer applies this to each unit and again to the combined change, since s
 
 ### Skills
 
-The agents share eight skills beyond the platform guidance.
+The agents share nine skills beyond the platform guidance.
 
 **Version control** (`version-control`) is preloaded into every agent. Before any git command that changes state, the agents work out the project's policy, then stay inside it:
 
@@ -119,7 +119,7 @@ merge: never
 
 Only `policy` is required. GitHub operations go through the `gh` CLI, one bare command per call, with no loops, polling scripts, or chained writes. Under every policy, the agents stage explicit paths, never force-push, never skip hooks, never change git config, and never discard work they didn't create. Only the overseer runs git writes, once the work passes verification and inspection. Managers and workers never commit, because they share a working tree with agents still in flight.
 
-**React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and `xcodebuild` with per-agent DerivedData and without taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review.
+**React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and no taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review. Agents build Xcode projects in a per-repository DerivedData folder outside Xcode's default, and the overseer assigns per-session slots for concurrent builds and cleans them up.
 
 **Quality bar** (`quality-bar`) is preloaded into every agent. It aims for no bugs on the first pass, so review confirms quality rather than discovering defects. Foundational work gets the full bar:
 - **What counts as foundational:** persistence, schemas, sync, shared interfaces, auth, and concurrency.
@@ -137,13 +137,15 @@ Everything else gets the normal inspection heuristic. Every repair diff is re-re
 
 **Web design** (`web-design`) loads for any project that builds web pages or sites, whatever the framework. It covers SEO (titles, meta descriptions, canonical URLs, robots and sitemaps, structured data), favicons and app icons, tab titles (no em-dashes), social cards, theming meta, and accessibility and motion rules. The `nextjs` skill implements these in Next.
 
+**Linear** (`linear`) needs the Linear MCP connected. It loads when the project's `CLAUDE.md` has a `## Linear` block or you ask the overseer to work or refine tickets in Linear. The block names the project and a status mode: `comment-only` (the default), `to-review`, or `to-done`. Unassigned Todo tickets are ranked by priority and, once you confirm them, run in batches of up to four that don't touch the same files. Backlog tickets are refined with you and moved to Todo. Only the overseer writes to Linear.
+
 ### Optional integrations
 
-The agents use two MCP servers when they're connected and work normally without them.
+The agents use two MCP servers when they're connected and work normally without them. The `linear` skill is the exception: it needs the Linear MCP and stops if it isn't connected.
 
 **[Cadence](https://cadencecode.dev/)**
 - **Knowledge vault.** Agents search it before non-trivial work. The inspector checks changes against decisions stored there. The overseer saves new durable knowledge.
-- **Specs.** When you name a spec ("implement spec 14"), its success criteria become the definition of done.
+- **Specs.** When you name a spec ("implement spec 14"), or a Linear ticket you ask for links one, its success criteria become the definition of done.
 - **Reports and other output.** Reports are built as Cadence reports rather than artifacts. Slides, files, notes, and anything else Cadence has a tool for go through Cadence.
 
 **[Telescope](https://telescope.littleplanetlabs.com/)**
@@ -168,6 +170,7 @@ plugins/little-planet-factory/
   skills/vercel/                           Vercel deploy rules and platform defaults, loaded on demand
   skills/nextjs/                           Next.js conventions and defaults, loaded on demand
   skills/web-design/                       framework-agnostic SEO, icon, title, and design rules, loaded on demand
+  skills/linear/                           Linear project workflows, loaded on demand
 ```
 
 ## Development

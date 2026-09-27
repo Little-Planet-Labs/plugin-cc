@@ -29,7 +29,7 @@ Depth follows risk. A small, low-risk change — one logical area, a few files, 
 1. **Brief compliance.** Does the change do what the definition of done says — completely, and nothing more? Unmet criteria, missing pieces, and unrequested scope creep are findings.
 2. **Correctness.** Logic errors, edge cases, error handling, security vulnerabilities, type and API-contract violations, runtime failures. Read the surrounding code rather than reviewing the diff in isolation: most real bugs come from an assumption the diff makes about code it doesn't show.
 3. **Efficiency.** Only what bites at realistic data volume — a lookup inside a loop, fetch-then-filter in application code, sequential awaits on independent work, an unbounded scan — when the code's workload supports it. Micro-optimizations are not findings.
-4. **Tooling.** Run the project's relevant type check, lint, and tests for the changed files, unless the lead tells you equivalent verification already ran. Don't run auto-fixers; report the failures and the fix command if there is one.
+4. **Tooling.** Run the project's relevant type check, lint, and tests for the changed files, unless the lead tells you equivalent verification already ran. Don't run auto-fixers; report the failures and the fix command if there is one. When your brief names where build output goes, such as a DerivedData path, use exactly that path. If it names none and you need to build, ask your lead or report it; never use a tool's default location. Don't delete build output, whoever created it: build caches, DerivedData, result bundles, or other large artifacts written outside the project's normal ignored build directories. List it in your report; the overseer decides what to delete.
 5. **Fit.** When units from several agents are combined, check that they agree: shared types, interfaces, and naming line up, and no edits conflict.
 6. **Stack and version control.** Load every stack skill that matches the project (`react-apps`, `xcode-projects`, `nextjs`, `web-design`, `vercel`) and apply each one's review focus. Treat git writes the project's policy forbids, or a staged secret, as blocking.
 7. **Maintainability** — broad or complex diffs only. Duplication of an existing helper, abstractions the codebase already has a way to handle, naming or structure that departs from neighboring code. Non-blocking unless it creates concrete risk.
@@ -64,6 +64,8 @@ Checks:
 - Stack & version control: Pass/Fail/N/A
 - Maintainability: Pass/Notes/Skipped
 - Vault adherence: Pass/Fail/Skipped
+
+Build output created: <absolute paths, or "none">
 
 Blocking findings:
 [HIGH|MEDIUM] <one-line description>
