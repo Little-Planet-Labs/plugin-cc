@@ -1,6 +1,6 @@
 ---
 name: linear
-description: How Little Planet Factory agents work a project's Linear board through the Linear MCP — the `## Linear` block in CLAUDE.md that names the project and the status mode (comment-only, to-review, or to-done), resolving statuses by type and name instead of hard-coded names, working ready unassigned Todo tickets in ranked batches that don't overlap on files (with a "do all" loop), blocking stuck tickets, refining Backlog tickets with the user and moving them to Todo, linking Cadence specs when Cadence is connected, and which role may write to Linear. Use when the user asks to work on, pick up, finish, refine, groom, or plan tickets in Linear, or when a brief's source of truth is a Linear issue.
+description: How Little Planet Factory agents work a project's Linear board through the Linear MCP — the `## Linear` block in CLAUDE.md that names the project and the status mode (comment-only, to-review, or to-done), resolving statuses by type and name instead of hard-coded names, working ready unassigned Todo tickets in ranked batches that don't overlap on files or build together (with a "do all" loop), blocking stuck tickets, refining Backlog tickets with the user and moving them to Todo, linking Cadence specs when Cadence is connected, and which role may write to Linear. Use when the user asks to work on, pick up, finish, refine, groom, or plan tickets in Linear, or when a brief's source of truth is a Linear issue.
 user-invocable: false
 ---
 
@@ -90,18 +90,18 @@ If Cadence is connected but a referenced spec's lookup fails, say one line about
      - no person has commented since, and
      - the user hasn't named the ticket.
 3. **Rank.** By Linear priority: Urgent, High, Medium, Low, then No priority (priority `0` sorts last). Break ties by earliest due date, with undated tickets last, then by oldest creation date.
-4. **Pick a batch.** Scope each ticket's files from the code, as you would when splitting units. Resumed Paused tickets go in first. The reserved files are:
+4. **Pick a batch.** Scope each ticket's files, and what its builds and tests compile, from the code, as you would when splitting units. Resumed Paused tickets go in first; this step's rules against tickets already in the batch still apply. The reserved files are:
    - every file another ticket changed and hasn't committed this session, in the shared tree or a kept worktree;
    - under `none`, `commit`, and `push` only, every file that was dirty, untracked included, when the session began.
 
-   A ticket's own uncommitted files don't count against it. Add a ticket only if its files overlap neither the reserved files nor any ticket already in the batch. Stop at four.
-5. **Confirm.** Show the ranked list with the suggested batch marked, each ticket held back with the files blocking it, the tickets skipped for a `Started:` comment as "started elsewhere" (so a stale claim from a crashed session can be pulled back in), and, under shared-tree policies, the files that were dirty at session start. Ask the user to confirm or edit the batch, as an interview question (multi-select works well). Nothing starts until they answer.
+   A ticket's own uncommitted files don't count against it. Add a ticket only if its files overlap neither the reserved files nor any ticket already in the batch, and it doesn't **build together** (overseer, Plan and delegate step 2) with a ticket already in the batch or, unless the user added it anyway, with a Paused or Blocked ticket's uncommitted files. Stop at four.
+5. **Confirm.** Show the ranked list with the suggested batch marked, each ticket held back with what's blocking it (its overlapping files, or what it builds together with, such as "builds together with ABC-12 (MyApp)" or "MyApp has ABC-9's unfinished work (Paused)"), the tickets skipped for a `Started:` comment as "started elsewhere" (so a stale claim from a crashed session can be pulled back in), and, under shared-tree policies, the files that were dirty at session start. Ask the user to confirm or edit the batch, as an interview question (multi-select works well). Nothing starts until they answer. A ticket held back for building together that the user adds anyway waits for the next batch; tell the user. When the current batch finishes, it's ranked first for the next batch, after resumed Paused tickets, starting one by steps 2–5 if no batch is running; step 4's rules against tickets already in the batch still apply. If it was held back for a Paused or Blocked ticket's unfinished work, tell them its build may fail on that work.
 6. **Start.**
    - **Where.** Under `pull-request`, create and bootstrap each ticket's worktree first (Worktrees, steps 1–2). Under `none`, `commit`, and `push`, tickets share the working tree as step 4's split allows.
    - **Claim.** Apply the mode's start step, then post a `Started:` comment in every mode. The comment must be newer than the status change for step 2 to see it.
    - **Specs.** When Cadence is connected, load linked specs and set them `in_progress`.
    - **Definition of done.** The ticket's description, acceptance criteria, and scope-changing comments, plus its spec's success criteria when there is one, go into its briefs.
-   - **Dispatch** the batch in parallel. No two tickets share a file, and no two concurrent builders share a build slot (slots are time-shared within the stack skill's cap). Build output goes where the stack skill says; for Xcode, never inside a worktree.
+   - **Dispatch** the batch in parallel. No two tickets in the batch share a file or build together, and no two concurrent builders share a build slot (slots are time-shared within the stack skill's cap). Build output goes where the stack skill says; for Xcode, never inside a worktree.
 7. **Finish.** Run cleanup once per batch: after every ticket still in progress has passed final verification, and before any signoff, so nothing deletes a slot another ticket is using. Any repeat cleanup after a signoff repair waits for the same condition. In a "do all" run, per-batch cleanup still deletes the reported scratch artifacts, but the overseer keeps its build session directory across batches so slots stay warm. Then send each ticket to signoff on its own, with the ticket (and its spec) as the source of truth.
 8. **Git writes.** Per the version-control skill, commit each signed-off ticket once no ticket in the same tree is mid-edit (Paused and Blocked tickets aren't). One commit per ticket, staging only its paths and referencing its identifier. Under `pull-request`, finish with Worktrees steps 4–5.
 9. **Update.** For each signed-off ticket, post the summary comment with `save_comment`, then apply the mode's end step.
@@ -130,14 +130,14 @@ Every ticket gets its own worktree, even when tickets run one at a time. The use
 A batch is finished when every ticket in it is one of:
 
 - **Signed off**, then committed and updated as above.
-- **Paused**: waiting on the user. Its question goes to the user; the ticket is held, so re-queries skip it, and its files and worktree stay. When the user answers, it joins the next batch, never the current one.
+- **Paused**: waiting on the user. Its question goes to the user; the ticket is held, so re-queries skip it, and its files and worktree stay. When the user answers, it joins the next batch, starting one by steps 2–5 if no batch is running, never the current one.
 - **Blocked**: a ticket that hits three rounds at the inspection limit or the signoff limit gets reassessed per the quality-bar skill (a new brief, split, agent, or approach) and a fresh three rounds. Only a ticket still stuck after that is blocked. In this order: return it to Todo if the mode moved it, then post a comment starting with `Blocked:` that says what's blocking, then add the Blocked label. The order matters because the status change must be older than the comment, or step 2's skip rule won't see it. Mark it handled and list it in your report. Its uncommitted files stay reserved, and its worktree is kept (Worktrees step 5).
 
 **The Blocked label.** Find it once with `list_issue_labels`, preferring a team or workspace label named "Blocked". If there isn't one, ask the user once whether to create it (with `save_issue_label`) or to rely on the `Blocked:` comment alone. Never create it silently.
 
 ### "Do all of it"
 
-When the user asks for all ready work, don't stop after one batch. When a batch is finished, re-query Todo, since tickets change while you work, and pick the next batch by steps 2–4 without asking again. Stop when the next batch comes up empty, even if tickets are still held back by reserved files, or when the user says stop. Report each batch as it finishes. When the loop ends, delete the build session directory kept across batches. The final report lists each held ticket with the files blocking it, and every kept worktree with its path, branch, and why it was kept (Paused, Blocked, or not clean).
+When the user asks for all ready work, don't stop after one batch. When a batch is finished, re-query Todo, since tickets change while you work, and pick the next batch by steps 2–4 without asking again. Stop when the next batch comes up empty, even if tickets are still held back, or when the user says stop. Report each batch as it finishes. When the loop ends, delete the build session directory kept across batches. The final report lists each held ticket with what's blocking it, and every kept worktree with its path, branch, and why it was kept (Paused, Blocked, or not clean).
 
 ### Comments
 

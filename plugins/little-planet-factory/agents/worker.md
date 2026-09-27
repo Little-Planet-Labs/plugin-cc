@@ -34,7 +34,7 @@ Treat scalability issues supported by the code's workload constraints as correct
 
 ## Verify
 
-Run targeted checks on the files you own — type check, lint, a focused test — not the full project suite or build; your lead verifies the integrated result. Fix what you broke before reporting.
+Run targeted checks on the files you own — type check, lint, a focused test — not the full project suite or build; your lead verifies the integrated result. Fix what you broke before reporting. A failure in a file you don't own goes in your report; don't fix it.
 
 ## Corrections
 

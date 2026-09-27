@@ -32,7 +32,7 @@ To roll it out to everyone working in a repo, add this to the repo's `.claude/se
 
 ## Little Planet Factory
 
-Six agents that split a task into parallel units of work and don't call it done until it has been checked.
+Six agents that split a task into units of work, run them in parallel where they can't break each other's builds, and don't call it done until it has been checked.
 
 ```
 overseer            you talk to this one
@@ -65,7 +65,7 @@ The overseer replaces the default Claude Code system prompt for that session.
 
 ### The agents
 
-**Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers in parallel. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, every required inspection has come back clean, and it has cleaned up the build output agents reported.
+**Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers, in parallel only when they don't build together: units where either's build compiles the other's files in one working tree run one after another, and one that stops unfinished holds the rest up until it's done or you decide. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, every required inspection has come back clean, and it has cleaned up the build output agents reported.
 
 **Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface. It picks opus or sonnet for each worker based on the unit's difficulty and risk. It never uses haiku for a worker, and nothing above opus unless you ask for it.
 
@@ -119,7 +119,7 @@ merge: never
 
 Only `policy` is required. GitHub operations go through the `gh` CLI, one bare command per call, with no loops, polling scripts, or chained writes. Under every policy, the agents stage explicit paths, never force-push, never skip hooks, never change git config, and never discard work they didn't create. Only the overseer runs git writes, once the work passes verification and inspection. Managers and workers never commit, because they share a working tree with agents still in flight.
 
-**React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and no taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review. Agents build Xcode projects at low priority, with capped parallelism, in a per-repository DerivedData folder outside Xcode's default, and run scoped tests with no host app on the Mac instead of a simulator. Tests hosted in your app, including UI tests, run on the Mac only if your `CLAUDE.md` has `mac-hosted-tests: allowed` under an `## Xcode` heading. For a Mac-only app without it, the overseer asks you first. The overseer assigns per-session slots for concurrent builds and cleans them up.
+**React apps** (`react-apps`) and **Xcode projects** (`xcode-projects`) load when the project uses that stack. They cover how to detect the tooling, how to verify with commands that exit (no dev servers, and no taking over your simulator), what to leave alone (lockfiles, signing, generated project files), which shared files need a single owner when work is split across agents, and what the inspector should weight in review. Agents build Xcode projects at low priority, with all agent builds together capped at half the cores, in a per-repository DerivedData folder outside Xcode's default and excluded from Time Machine, and run scoped tests with no host app on the Mac instead of a simulator. Tests hosted in your app, including UI tests, run on the Mac only if your `CLAUDE.md` has `mac-hosted-tests: allowed` under an `## Xcode` heading. For a Mac-only app without it, the overseer asks you first. The overseer assigns per-session slots for concurrent builds and cleans them up. Units in one app (with its frameworks and local packages) or one TypeScript project build together, so they run one after another.
 
 **Quality bar** (`quality-bar`) is preloaded into every agent. It aims for no bugs on the first pass, so review confirms quality rather than discovering defects. Foundational work gets the full bar:
 - **What counts as foundational:** persistence, schemas, sync, shared interfaces, auth, and concurrency.
@@ -137,7 +137,7 @@ Everything else gets the normal inspection heuristic. Every repair diff is re-re
 
 **Web design** (`web-design`) loads for any project that builds web pages or sites, whatever the framework. It covers SEO (titles, meta descriptions, canonical URLs, robots and sitemaps, structured data), favicons and app icons, tab titles (no em-dashes), social cards, theming meta, and accessibility and motion rules. The `nextjs` skill implements these in Next.
 
-**Linear** (`linear`) needs the Linear MCP connected. It loads when the project's `CLAUDE.md` has a `## Linear` block or you ask the overseer to work or refine tickets in Linear. The block names the project and a status mode: `comment-only` (the default), `to-review`, or `to-done`. Unassigned Todo tickets are ranked by priority and, once you confirm them, run in batches of up to four that don't touch the same files. Backlog tickets are refined with you and moved to Todo. Only the overseer writes to Linear.
+**Linear** (`linear`) needs the Linear MCP connected. It loads when the project's `CLAUDE.md` has a `## Linear` block or you ask the overseer to work or refine tickets in Linear. The block names the project and a status mode: `comment-only` (the default), `to-review`, or `to-done`. Unassigned Todo tickets are ranked by priority and, once you confirm them, run in batches of up to four that don't touch the same files or build together, with each other or with a paused or blocked ticket's unfinished work. Backlog tickets are refined with you and moved to Todo. Only the overseer writes to Linear.
 
 ### Optional integrations
 

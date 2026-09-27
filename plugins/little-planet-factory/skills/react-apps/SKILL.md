@@ -1,6 +1,6 @@
 ---
 name: react-apps
-description: How Little Planet Factory agents work in React web apps (Vite, Next.js, Remix/React Router, CRA, and similar) — detecting the stack and its commands, verifying without starting dev servers, component and hook discipline, and how to split React work across parallel agents without colliding on shared files. Use when planning, implementing, or reviewing changes in a project whose package.json depends on react.
+description: How Little Planet Factory agents work in React web apps (Vite, Next.js, Remix/React Router, CRA, and similar) — detecting the stack and its commands, verifying without starting dev servers, component and hook discipline, and how to split React work across agents without colliding on shared files, sequencing units that build together. Use when planning, implementing, or reviewing changes in a project whose package.json depends on react.
 user-invocable: false
 ---
 
@@ -67,6 +67,8 @@ Some files in a React app are touched by nearly every feature. Each one belongs 
 - Root providers and app shells (`App.tsx`, `layout.tsx`, `main.tsx`).
 
 When several units each need a line in one of these, give the lines to one owner (usually the lead during integration) and have the other units report the exact addition they need.
+
+**Units in one TypeScript project build together, so they run one after another.** `tsc`, `next build`, `vite build`, and a full test run cover every file in the project, so one unit's half-written file fails the other's checks. Packages whose checks don't reach each other's source don't build together.
 
 A good split follows feature or route boundaries: one unit per component tree or route, with the shared contract (props, hook signatures, API types) fixed in the briefs before dispatch.
 
