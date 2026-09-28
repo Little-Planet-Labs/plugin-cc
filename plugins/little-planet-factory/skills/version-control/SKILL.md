@@ -100,7 +100,7 @@ When the remote is on GitHub and `gh` is installed, use `gh` for everything that
 Run `gh` commands bare, one command per invocation:
 
 - No loops. Don't wrap `gh` in `for`, `while`, `until`, `xargs`, or a script that iterates over PRs, issues, or repos. To act on several items, run a separate `gh` command for each one, so every write is visible and can be approved on its own.
-- No polling loops. To wait on CI, use the built-in `gh pr checks <pr> --watch` or `gh run watch <run-id>` rather than `sleep`-and-retry. The one exception is the Copilot review wait below. `gh` has no built-in watch for reviews, and that loop only reads and always ends.
+- No polling loops. To wait on CI, use the built-in `gh pr checks <pr> --watch` or `gh run watch <run-id>` rather than `sleep`-and-retry. Two exceptions: the Copilot review wait below, and the open-PR watch below. `gh` has no built-in watch for reviews or general PR activity, and both loops only read and always end — the Copilot wait on its 15-minute limit, the PR watch the moment it sees a change.
 - No chaining writes. Don't join several `gh` writes with `&&` or `;`, or bury them in a larger shell pipeline. Piping a read into `jq` is fine, but `gh`'s own `--json` and `--jq` flags are better.
 - Use flags, not prompts. Pass `--title`, `--body` or `--body-file`, `--base`, and `--head` explicitly, so the command never waits on interactive input.
 
@@ -259,6 +259,41 @@ When the last triage is done, the overseer runs the PR review signoff (overseer 
 - each fix commit: the verification that ran and the inspection outcome for its repair diff.
 
 The report gives the outcome in one line, such as "PR review: 3 comments fixed, 1 answered". It counts every triaged comment, people's included, and it's shown whenever comments were triaged, even when Copilot was unavailable. A triage that found none shows "PR review: no comments". Copilot's own status goes on a separate note line when it applies, such as "Copilot review unavailable", "Copilot review skipped: gh <version> is older than 2.88.0", "no Copilot review within 15 minutes", or "second Copilot review didn't start". A refused resolve gets a note line too. Comments GitHub wouldn't let you answer, and drafts not posted after a refusal, go under Open, each with its link, drafted reply, and the refusal's error, and count as neither fixed nor answered.
+
+### Watching open PRs
+
+While the session has open PRs it opened that aren't merged or closed, the overseer (or the main session) keeps one read-only background watch per PR, so the lead hears about a human review, a comment, a CI result, a merge, or a Copilot review that lands after the 15-minute Copilot wait, without the user having to point it out. It never writes: every command in it is a GET.
+
+The watch snapshots the PR's review count, review-comment count, issue-comment count, state, and check summary, and exits, which wakes the lead, the moment any of them changes from the first snapshot it took:
+
+```bash
+prev=""
+checks=""
+while :; do
+  reviews=$(gh api "repos/<owner>/<repo>/pulls/<n>/reviews" --paginate --jq length); rv_ok=$?
+  rcomments=$(gh api "repos/<owner>/<repo>/pulls/<n>/comments" --paginate --jq length); rc_ok=$?
+  icomments=$(gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate --jq length); ic_ok=$?
+  state=$(gh pr view <n> --repo <owner>/<repo> --json state --jq .state); st_ok=$?
+  new_checks=$(gh pr checks <n> --repo <owner>/<repo> --json name,bucket --jq '[.[] | "\(.name)=\(.bucket)"] | sort | join(";")' 2>/dev/null)
+  [ -n "$new_checks" ] && checks="$new_checks"
+  if [ "$rv_ok" = 0 ] && [ "$rc_ok" = 0 ] && [ "$ic_ok" = 0 ] && [ "$st_ok" = 0 ]; then
+    snap="$reviews|$rcomments|$icomments|$state|$checks"
+    if [ -z "$prev" ]; then
+      echo "baseline: $snap"; prev="$snap"
+    elif [ "$snap" != "$prev" ]; then
+      echo "changed: $prev -> $snap"; exit 0
+    fi
+  fi
+  sleep 120
+done
+```
+
+Run it as one Bash command with `run_in_background: true`, one watch per PR, checking about every 2 minutes. It keeps each read's output and exit status apart, same as the Copilot wait, and a pass where any of the four gated reads failed decides nothing and just waits for the next one. The check summary isn't gated the same way: `gh pr checks --json name,bucket` prints nothing on stdout both when the PR has no checks (it exits 1 with "no checks reported" on stderr) and on a transient read failure, so the loop keeps the previous summary whenever that read's output is empty, whatever its exit status, and only replaces it when the read prints something.
+
+- **Re-baseline it by restarting** after every write the lead makes on that PR — a push, a reply, a PR comment, a review request, or a resolve. Those change the snapshot too, so a watch left running through one would wake the lead on its own activity rather than someone else's.
+- **On exit, triage.** The lead reads what changed, triages it the same way as step 3 (fix, answer, or track), and restarts the watch.
+- **A late Copilot review still just triages.** If the watch wakes on a Copilot review that lands after the PR's two Copilot rounds are used up (an automatic review of a later push, for example), triage its comments like any other (step 3), but don't request another Copilot review — the two-round cap in "4. One more round" still holds.
+- **Stop it when the PR merges or closes.** Stop it with the harness's own task-stop for that background command, or by its recorded PID. Never `pkill -f` on the loop's text: it can also match another agent's shell running the same pattern.
 
 ## Multi-agent work
 
