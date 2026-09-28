@@ -268,12 +268,14 @@ The watch snapshots the PR's review count, review-comment count, issue-comment c
 
 ```bash
 prev=""
+checks=""
 while :; do
   reviews=$(gh api "repos/<owner>/<repo>/pulls/<n>/reviews" --paginate --jq length); rv_ok=$?
   rcomments=$(gh api "repos/<owner>/<repo>/pulls/<n>/comments" --paginate --jq length); rc_ok=$?
   icomments=$(gh api "repos/<owner>/<repo>/issues/<n>/comments" --paginate --jq length); ic_ok=$?
   state=$(gh pr view <n> --repo <owner>/<repo> --json state --jq .state); st_ok=$?
-  checks=$(gh pr checks <n> --repo <owner>/<repo> 2>/dev/null | cut -f2 | sort | uniq -c | tr '\n' ';')
+  new_checks=$(gh pr checks <n> --repo <owner>/<repo> --json name,bucket --jq '[.[] | "\(.name)=\(.bucket)"] | sort | join(";")' 2>/dev/null)
+  [ -n "$new_checks" ] && checks="$new_checks"
   if [ "$rv_ok" = 0 ] && [ "$rc_ok" = 0 ] && [ "$ic_ok" = 0 ] && [ "$st_ok" = 0 ]; then
     snap="$reviews|$rcomments|$icomments|$state|$checks"
     if [ -z "$prev" ]; then
@@ -286,7 +288,7 @@ while :; do
 done
 ```
 
-Run it as one Bash command with `run_in_background: true`, one watch per PR, checking about every 2 minutes. It keeps each read's output and exit status apart, same as the Copilot wait, and a pass where any of the four gated reads failed decides nothing and just waits for the next one. `gh pr checks` itself exits non-zero while any check is pending or failing, so its read isn't gated the same way; a failed pass there just carries the last check summary forward until the text itself changes.
+Run it as one Bash command with `run_in_background: true`, one watch per PR, checking about every 2 minutes. It keeps each read's output and exit status apart, same as the Copilot wait, and a pass where any of the four gated reads failed decides nothing and just waits for the next one. The check summary isn't gated the same way: `gh pr checks --json name,bucket` prints nothing on stdout both when the PR has no checks (it exits 1 with "no checks reported" on stderr) and on a transient read failure, so the loop keeps the previous summary whenever that read's output is empty, whatever its exit status, and only replaces it when the read prints something.
 
 - **Re-baseline it by restarting** after every write the lead makes on that PR — a push, a reply, a PR comment, a review request, or a resolve. Those change the snapshot too, so a watch left running through one would wake the lead on its own activity rather than someone else's.
 - **On exit, triage.** The lead reads what changed, triages it the same way as step 3 (fix, answer, or track), and restarts the watch.
