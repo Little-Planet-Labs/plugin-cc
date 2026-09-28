@@ -8,6 +8,8 @@ user-invocable: false
 
 The overseer can work a Linear project two ways: complete tickets that are ready (Todo), and refine tickets that aren't (Backlog). Both run through the normal plan → delegate → inspect → cleanup → signoff → git writes → report flow. Under `pull-request`, the PR's review and the PR review signoff come between the git writes and the report, when the version-control skill says they apply. This skill adds where the work comes from and what gets written back to Linear. Triage tickets are out of scope for both workflows.
 
+**Compaction.** In a Linear run, keep the run's Linear state in the ledger's Linear section (Workflow A, Ledger), per the overseer's Ledger section. Compaction keeps only the start of this skill, so after compaction re-invoke it before any Linear read or write, and follow Ledger's recovery steps.
+
 ## Detecting the Linear MCP
 
 The tool-name prefix depends on how the user connected the server (for example `mcp__claude_ai_Linear__…` or `mcp__linear__…`), so match on the name after the prefix. Linear is present if you have tools such as `list_issues`, `get_issue`, and `save_issue`. This skill uses those plus `list_comments`, `save_comment`, `list_issue_statuses`, `list_projects`, `get_project`, `list_teams`, `get_team`, `list_issue_labels`, `save_issue_label` (`create_issue_label` on older servers), `get_attachment`, and `get_user`.
@@ -250,7 +252,7 @@ Links lists every part that applies. Under policy `none` it's the single bullet 
 
 The time floor runs on the session scheduler's `CronCreate`, `CronList`, and `CronDelete`. They may be deferred, so load them through tool search. A ticket is in progress from its Started comment until it's signed off (under `pull-request`, by the PR review signoff when it applies), Paused, Blocked, or halted by the user.
 
-1. **Track.** Note the time of every comment you post on an in-progress ticket, as `date +%s`.
+1. **Track.** Note the time of every comment you post on an in-progress ticket, as `date +%s`, in the ticket's ledger line (Ledger). Those recorded times are what the steps below read.
 2. **Schedule.** While any ticket is in progress, keep exactly one one-shot wake-up (not recurring).
    - **When.** The target is the earliest last comment + 60 minutes across those tickets. Schedule it N minutes from now, where N is the minutes to the target rounded up, and at least 2. A target that's already passed, or one in the current minute, would otherwise match next year and never fire. If the time lands on :00 or :30, add a minute.
    - **Cron fields.** Get them in one command so day and month rollover is handled: `date -v+<N>M '+%-M %-H %-d %-m'` on macOS or BSD, or `date -d '+<N> min' '+%-M %-H %-d %-m'` on GNU. The expression is `<minute> <hour> <day> <month> *`, in local time.
@@ -267,6 +269,24 @@ The time floor runs on the session scheduler's `CronCreate`, `CronList`, and `Cr
 
    After any cancel, check `CronList`, delete any "Linear progress check:" wake-up that's left, and say in the batch or final report that none remain.
 6. **Fallback.** If the cron tools aren't available (`CLAUDE_CODE_DISABLE_CRON=1` turns the scheduler off), or `CronCreate` fails, post milestone comments only and tell the user once. A `CronDelete` error doesn't trigger it; the job may already be gone.
+
+### Ledger
+
+The overseer's Ledger section says where the ledger lives and how it's kept. Its Linear section holds what this workflow would otherwise re-resolve, re-ask, or forget:
+
+- **Setup.** The resolved project and team, the status mode, and the resolved status IDs the run uses (Todo, In Progress, In Review, Done, Backlog), so none is resolved or asked again. The Blocked label's ID, or the user's decision to rely on the `Blocked:` comment alone.
+- **Loop.** Whether a "do all" loop is running, the batch number, whether the user ended the loop, and any ticket waiting for the next batch (step 5).
+- **Reserved files.** Under `none`, `commit`, and `push`, the files that were dirty when the session began (step 4). When they don't fit, write them to a file beside the ledger and record its path.
+- **Tickets.** One line each: identifier, batch, state (in progress, Paused, Blocked, Halted, signed off, committed, or updated, plus released for a dead ticket), its units by name, the `date +%s` of its last workflow comment, its PR URL and Copilot round when it has a PR, and its worktree path when it has one.
+- **Wake-up.** The progress wake-up's job ID and target time, or "none".
+
+Update the section after every comment, status change, label change, claim, batch pick, batch outcome, and wake-up change, before the next Linear write. At each batch boundary, collapse each finished ticket to one line: identifier, outcome, and commit or PR. Keep those lines for the rest of the session, since step 2 skips tickets handled this session.
+
+**After compaction.** Follow the overseer's After compaction section, then:
+
+1. **Check before writing.** Before the first Linear write on a ticket, `get_issue` and `list_comments` it and compare them with its ledger line. A comment, status change, label, or claim the ledger doesn't show may have gone out just before compaction. Don't repeat it. Update the ledger from Linear, taking the last comment time from that comment's `createdAt`.
+2. **Reconcile the wake-up.** Find every "Linear progress check:" wake-up with `CronList`. While any ticket is in progress, keep exactly one (Progress check, step 2): delete extras, and if none is left, create one from the ledger's comment times. With nothing in progress, delete any that's left. Record the result.
+3. **Carry on the loop.** Continue the "do all" loop from the ledger's batch state without asking the user again. A batch the user confirmed stays confirmed, and a loop the user ended stays ended.
 
 ## Workflow B: refine and plan
 

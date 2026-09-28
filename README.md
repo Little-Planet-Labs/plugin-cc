@@ -63,6 +63,10 @@ Or make it the default for a project in `.claude/settings.json`:
 
 The overseer replaces the default Claude Code system prompt for that session.
 
+### Long sessions
+
+The overseer keeps a small ledger of its working state in the session scratchpad: the agents it has running, review rounds, and Linear state. The plugin's SessionStart hook tells the overseer where the ledger is and puts it back into context after compaction or when you resume a session, so auto-compaction doesn't make it lose track of that work. Turn on auto-compact in `/config` for long runs, such as working through a Linear board overnight. The hook needs Node.js, and does nothing if `node` isn't on your PATH.
+
 ### The agents
 
 **Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers, in parallel only when they don't build together: units where either's build compiles the other's files in one working tree run one after another, and one that stops unfinished holds the rest up until it's done or you decide. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, every required inspection has come back clean, and it has cleaned up the build output agents reported.
@@ -182,6 +186,8 @@ plugins/little-planet-factory/
   skills/web-design/                       framework-agnostic SEO, icon, title, and design rules, loaded on demand
   skills/linear/                           Linear project workflows, loaded on demand
   skills/codex-review/                     optional Codex second review, preloaded into the inspector
+  hooks/                                   SessionStart hook that points the overseer to its ledger and re-injects it
+tests/                                     tests for the ledger hook, not shipped with the plugin
 ```
 
 ## Development
@@ -191,6 +197,12 @@ Validate after editing:
 ```
 claude plugin validate .
 claude plugin validate plugins/little-planet-factory
+```
+
+Run the ledger hook tests (needs Node.js):
+
+```
+sh tests/factory-ledger-hook.test.sh
 ```
 
 Test locally from a clone:
