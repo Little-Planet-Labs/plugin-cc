@@ -292,6 +292,7 @@ Run it as one Bash command with `run_in_background: true`, one watch per PR, che
 
 - **Re-baseline it by restarting** after every write the lead makes on that PR — a push, a reply, a PR comment, a review request, or a resolve. Those change the snapshot too, so a watch left running through one would wake the lead on its own activity rather than someone else's.
 - **On exit, triage.** The lead reads what changed, triages it the same way as step 3 (fix, answer, or track), and restarts the watch.
+- **A late Copilot review still just triages.** If the watch wakes on a Copilot review that lands after the PR's two Copilot rounds are used up (an automatic review of a later push, for example), triage its comments like any other (step 3), but don't request another Copilot review — the two-round cap in "4. One more round" still holds.
 - **Stop it when the PR merges or closes.** Stop it with the harness's own task-stop for that background command, or by its recorded PID. Never `pkill -f` on the loop's text: it can also match another agent's shell running the same pattern.
 
 ## Multi-agent work
