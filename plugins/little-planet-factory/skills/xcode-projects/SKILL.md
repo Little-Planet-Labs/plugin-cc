@@ -38,7 +38,8 @@ taskpolicy -c utility nice -n 10 xcodebuild test \
   -derivedDataPath <root>/main \
   -jobs <jobs> \
   -parallel-testing-enabled NO \
-  -only-testing:<TestTarget>/<TestClass>
+  -collect-test-diagnostics never \
+  -only-testing:<TestTarget>/<TestClass> 2>&1 | tee <scratch>/<run>.log
 ```
 
 - **Every `xcodebuild` command passes `-derivedDataPath`**, including `-showBuildSettings` and `-showdestinations` (both with `-scheme`), with the exact absolute path your brief names. `-list` needs `-scheme` alongside it (without one it rejects the flag), so use a bare `-list` only when there's no shared scheme; it writes logs and package-resolution state to the default folder. `-downloadPlatform` writes no DerivedData and is exempt. The path is `<root>/main`, as above, or your assigned slot. Never build without it. The default is the same folder the user's open Xcode uses, so building there can fail either side with `unable to attach DB ... build.db: database is locked` and throws away each other's incremental state. If your brief names no DerivedData path, ask your lead or report it. Don't fall back to the default or pick a folder yourself.
@@ -47,7 +48,8 @@ taskpolicy -c utility nice -n 10 xcodebuild test \
 - **Compile-only checks** use a generic destination (`generic/platform=iOS Simulator`, `platform=macOS`), so no simulator needs to boot.
 - **Tests** without a host app run on the Mac; see Choosing a test destination below. A simulator boots a whole iOS runtime outside the priority clamp.
 - **Scope tests** with `-only-testing:` for workers, and pass `-parallel-testing-enabled NO` so a single test class doesn't spread across cloned simulators. For `swift test`, the equivalents are `--filter <TestTarget>.<TestClass>` and `--no-parallel`. The lead runs the scheme's full tests on the integrated change, with the scheme's own parallel setting and the destination the project's CI or test plan uses, when one is defined. The hosted-test rule below applies to that run too: a Mac destination from CI or a test plan is used only for host-free targets, or with the opt-in or the user's yes (step 2).
-- **Read failures from the output.** Pass `-quiet`, or pipe through `xcbeautify` if it's installed, to cut the noise. Add `-resultBundlePath` under your scratch directory when you need structured failure detail, and list the `.xcresult` bundle's absolute path in your report. Don't delete it; the overseer decides. The first `error:` line matters more than the final `** BUILD FAILED **`.
+- **Every `xcodebuild test` passes `-collect-test-diagnostics never`**, including the lead's full runs and inspectors' runs. By default a failing run collects a sysdiagnose through `simctl diagnose` after its tests finish, and that step can hang for its full 600-second timeout while `xcodebuild` never exits. Anything waiting on the exit waits with it, including the restore of temporary edits (see Temporary edits to source). Measured on Xcode 27: without the flag, runs whose last test had finished stayed alive about 10 minutes in `simctl diagnose`; with it, a failing run exited 3 seconds after `** TEST FAILED **`. Mutation checks and red-first tests fail on purpose, so they always hit this. When you need structured failure detail, `-resultBundlePath` still records it.
+- **Read failures from the output, and keep the evidence.** Tee the full output to a log under your scratch directory, as the template does. Run it with `set -o pipefail`, or read `${pipestatus[1]}` in zsh, because the pipe otherwise hides `xcodebuild`'s exit status. Quote the log's `Test run with …` and `** TEST … **` lines in your report. Grep the log, or pipe the live stream through `xcbeautify` if it's installed, to cut the noise. Don't use `-quiet` for a run you'll cite: it prints nothing on success, so its log proves nothing. Add `-resultBundlePath` under your scratch directory when you need structured failure detail, and list the `.xcresult` bundle's absolute path in your report. Don't delete it; the overseer decides. The first `error:` line matters more than the final `** BUILD FAILED **`.
 - **Swift packages** resolve on the first build. If resolution fails, run `xcodebuild -resolvePackageDependencies` once, with the same `-derivedDataPath`, and report it if it still fails. Don't delete `Package.resolved` to make it go away.
 
 ### Choosing a test destination
@@ -83,9 +85,29 @@ Some failures come from the machine rather than the change. Recognize them and r
 
 - **SDK and simulator runtime mismatch after an Xcode update**: no matching destinations, `No simulator runtime version…`, or asset catalog compilation (`actool`) failing. The new Xcode's SDK has no installed runtime. `xcodebuild -downloadPlatform iOS` (or the platform in question) installs it. That download is large and changes the machine, so ask before running it.
 - **A companion platform's runtime is missing** (for example watchOS for an iOS app with an embedded watch app). The whole scheme can refuse to resolve even though the target you changed is fine. Build the specific target, or type-check against the right SDK, and say that the full scheme couldn't be built.
-- **Signing and provisioning errors on a simulator build** usually mean signing wasn't disabled for the check. Add `CODE_SIGNING_ALLOWED=NO` rather than touching the project's signing settings.
+- **Signing and provisioning errors on a simulator build** usually mean signing wasn't disabled for the check. Add `CODE_SIGNING_ALLOWED=NO` to compile-only builds rather than touching the project's signing settings. Hosted test runs keep the project's own simulator signing: an unsigned host app has no entitlements, and one that opens iCloud, CloudKit, or an App Group at launch can trap before the runner connects (`Early unexpected exit, operation never finished bootstrapping … The test runner crashed before establishing connection`). If a hosted run fails that way, drop `CODE_SIGNING_ALLOWED=NO` before calling it environmental.
+- **Tests finished but `xcodebuild` doesn't exit.** The log's last `Test run with …` line is there, and minutes pass with no `** TEST … **` line. Check for a `simctl diagnose` child (see Finding processes below). A run that passed `-collect-test-diagnostics never` shouldn't reach this. If one does, restore any temporary source edits first, then end only your own `xcodebuild` and its `simctl diagnose`, and report it. Never wait on it.
 - **Framework APIs that exist only on a device SDK** can't be compiled for or tested on the simulator. Say what couldn't be verified.
 - **Stale state in `main`**: errors the change can't explain, such as `cannot find type X in scope` from a leftover `.swiftmodule`, or products built before a deployment-target change. Report it. The overseer rebuilds in a fresh slot, or asks the user before clearing `main`. Agents never clear it themselves.
+
+### Temporary edits to source
+
+Mutation checks, and red-first proofs of a fix, change source files, build, test, and put the files back. While those edits are on disk, every build that reads the working tree compiles them. That includes another agent's build in its own slot.
+
+- **Only when you're the tree's only builder.** Ask your lead to schedule the run, and don't start it while any other agent's `xcodebuild`, `swift build`, or `swift test` is reading the same working tree. A slot gives each builder its own DerivedData, not its own sources.
+- **One command owns the edit.** Back up each file, apply the change, run the build and test, and restore, all in one script. The script restores through a `trap` on `EXIT`, `INT`, and `TERM`, so a killed or failed run still restores. Verify each file afterwards with `cmp` against its backup, and report that it matches.
+- **Don't wait on `xcodebuild` to exit.** Pass `-collect-test-diagnostics never` (the run fails by design). Watch the log, and once the final `Test run with …` or `** TEST … **` line appears, restore, even if `xcodebuild` is still alive. If the log stops growing for about 10 minutes, restore and end your own processes; see Finding processes.
+- **One batch at a time.** Start the next batch only after the previous run's `xcodebuild` has exited and the restore is verified.
+
+### Watching for stalls (lead)
+
+Agents wait on processes, and a stuck process leaves them waiting without saying so. While agents are building, the overseer (or the main session) runs a watchdog in the background. It's a loop that exits, which wakes the lead, when a condition holds:
+
+- an agent `xcodebuild` (its `-derivedDataPath` is under the agent DerivedData root) has run longer than the slowest expected run, for example 30 minutes; or
+- a `simctl diagnose` has run longer than 2 minutes; or
+- nothing has built and nothing in the working tree has changed for about 25 minutes while agents are still running.
+
+It finds processes by executable name (see Finding processes). It ends a stuck process only when it can prove the process is one this session started: a `simctl diagnose` on one of the session's own simulator UDIDs, never one on the user's simulator. It reports everything else, and never matches or signals shells. After it exits, the lead reads what it found, acts, and starts it again.
 
 ## DerivedData
 
@@ -98,7 +120,8 @@ Two `xcodebuild` processes sharing a DerivedData folder contend for its build da
   ```
   It holds `main` and `sessions/<session-id>/slot-N`. Use the absolute path it prints, never `~`, which isn't expanded inside the quoted `pgrep` patterns below. A unit working in a worktree still builds in `main` or this session's slots under this root, never in a folder inside the worktree.
 - **Time Machine.** In each session, before its first build, the overseer (or the main session) runs `mkdir -p` on `$HOME/Library/Developer/Xcode/DerivedData-agents` as an absolute path, then `tmutil isexcluded` on it. Unless that prints `[Excluded]`, it runs `tmutil addexclusion` on it (no `-p`, no sudo) and notes it in the cleanup record. If `tmutil addexclusion` fails, report it and continue. It's the one machine setting agents change without asking.
-- **Checking that a folder is free.** `pgrep -fl -- "-derivedDataPath <folder>/?( |\$)"` exits 1 when nothing is building there. Treat any other exit status, 0 or an error, as busy. The anchored end keeps `main` from matching `main-old`, and `slot-1` from matching `slot-10`.
+- **Checking that a folder is free.** `pgrep -fl -- "-derivedDataPath <folder>/?( |\$)"` exits 1 when nothing is building there. Treat any other exit status, 0 or an error, as busy. The anchored end keeps `main` from matching `main-old`, and `slot-1` from matching `slot-10`. `pgrep -f` also matches a shell whose command line merely contains that text, including the one running the check, so a match can be a false "busy". That's safe for this check, which only ever waits, but never use `pgrep -f` to pick a process to kill; see Finding processes.
+- **Finding processes to act on.** Match by executable name, then read the arguments. For example, `for p in $(pgrep -x xcodebuild); do ps -o args= -p $p; done`, filtered on your `-derivedDataPath`; or `pgrep -x simctl`, filtered on ` diagnose ` and your simulator's UDID. `pgrep -f '<pattern>'` also matches any shell, script or agent command whose text contains the pattern, so killing what it returns can end another agent's build or guard script mid-run.
 - **`main`** is shared by every session on the repo and persists, so builds stay warm. The overseer's own builds, and a lone or sequential builder, use it once the check exits 1. If it's busy, or a build fails with `database is locked` because another session started at the same moment, that's environmental: the overseer switches to one of its slots, and any other agent reports it to its lead rather than picking a folder.
 - **Session ID.** Use `$CLAUDE_CODE_SESSION_ID`, falling back to the name of the scratch directory's parent, and check it's one UUID-like path component:
   ```
