@@ -61,7 +61,7 @@ Or make it the default for a project in `.claude/settings.json`:
 { "agent": "little-planet-factory:overseer" }
 ```
 
-The overseer replaces the default Claude Code system prompt for that session.
+The overseer replaces the default Claude Code system prompt for that session. To run subagents on sonnet instead, see [Lite tier](#lite-tier).
 
 ### Long sessions
 
@@ -71,9 +71,9 @@ The overseer keeps a small ledger of its working state in the session scratchpad
 
 **Overseer** (`little-planet-factory:overseer`) is the controller. It scopes the work, breaks it into units that don't touch the same files, and hands them to workers and managers, in parallel only when they don't build together: units where either's build compiles the other's files in one working tree run one after another, and one that stops unfinished holds the rest up until it's done or you decide. It doesn't write code unless you tell it to. It launches agents in the background so you can keep talking to it while they run: ask questions, add work, or redirect an agent mid-task. It owns final quality. Work isn't done until every unit has reported back, it has read every diff, verification passes, every required inspection has come back clean, and it has cleaned up the build output agents reported.
 
-**Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface. It picks opus or sonnet for each worker based on the unit's difficulty and risk. It never uses haiku for a worker, and nothing above opus unless you ask for it.
+**Manager** (`little-planet-factory:manager`) sits between the overseer and a group of workers when a sub-task is too complex to hand to one worker. It decomposes the sub-task, runs it across workers, integrates and verifies the result, runs its own inspection, and reports a summary so the overseer doesn't have to track the detail. It makes low-risk calls itself and lists them as assumptions. It comes back to the overseer with anything that changes scope or a shared interface. In the full tier, it picks opus or sonnet for each worker based on the unit's difficulty and risk. It never uses haiku for a worker, and nothing above opus unless you ask for it.
 
-**Researcher** (`little-planet-factory:researcher`) answers one question for the overseer or a manager before it plans or writes a brief: how an external library or API behaves, an end-to-end root-cause trace, or a broad sweep across repos, the knowledge vault, or tickets. It's read-only. Every finding is labeled either confirmed, with its source, or inferred. Findings are verified wherever possible; an unverified one is a last resort and must say what was tried and why it can't be checked. Leads send research back for up to three rounds per question, then you decide. It runs on sonnet by default, plain sweeps included, and opus for hard tracing. It isn't for scoping the files the lead is about to split; the lead reads those itself.
+**Researcher** (`little-planet-factory:researcher`) answers one question for the overseer or a manager before it plans or writes a brief: how an external library or API behaves, an end-to-end root-cause trace, or a broad sweep across repos, the knowledge vault, or tickets. It's read-only. Every finding is labeled either confirmed, with its source, or inferred. Findings are verified wherever possible; an unverified one is a last resort and must say what was tried and why it can't be checked. Leads send research back for up to three rounds per question, then you decide. It runs on sonnet by default, plain sweeps included, and in the full tier on opus for hard tracing. It isn't for scoping the files the lead is about to split; the lead reads those itself.
 
 **Worker** (`little-planet-factory:worker`) implements one unit. It stays inside the files it was assigned, matches the surrounding code's conventions, runs targeted checks, and reports what it changed and what it assumed. It can't spawn other agents.
 
@@ -83,7 +83,21 @@ The overseer keeps a small ledger of its working state in the session scratchpad
 
 ### Models
 
-Every subagent except the researcher (sonnet) is pinned to opus, so the model you start the session on doesn't carry down to them. Agents without a pin, such as Claude Code's built-in agent types, get an explicit model of opus or sonnet on every call. Leads can downgrade per call: sonnet for a mechanical worker. No agent runs on haiku. Nothing runs above opus unless you ask for it, and then only for the work you named. The overseer runs on whatever model you start it with.
+Every subagent except the researcher (sonnet) is pinned to opus, so the model you start the session on doesn't carry down to them. Agents without a pin, such as Claude Code's built-in agent types, get an explicit model of opus or sonnet on every call. Leads can downgrade per call: sonnet for a mechanical worker. No agent runs on haiku. Nothing runs above opus unless you ask for it, and then only for the work you named. The overseer runs on whatever model you start it with. The [lite tier](#lite-tier) changes these defaults.
+
+### Lite tier
+
+To spend less on subagents, start the session with `LPF_TIER=lite`:
+
+```
+LPF_TIER=lite claude --agent little-planet-factory:overseer
+```
+
+Only the environment variable sets the tier. Without it, or with any other value, the factory runs as described above.
+
+In lite, managers stay on opus, and the overseer runs on whatever model you start it with, as usual. Workers, inspectors, researchers, signoff, and Claude Code's built-in agent types all run on sonnet. Leads never quietly bump a unit to opus. Foundational units and inspection triggers run on sonnet with their usual gates. Only when a unit hits the three-round limit does the overseer ask you whether to keep it on sonnet or run that one unit at full tier, and it moves to opus only if you say yes. Because the inspector is on sonnet, every lite inspection asks for the [Codex](#optional-integrations) second review, repair rounds included, when Codex is set up. Every other gate stays the same.
+
+The SessionStart hook tells the overseer the session is lite, and a hook on agent spawns denies a worker, inspector, researcher, signoff, or built-in agent that isn't on sonnet, unless it's marked as a unit you approved for full tier. Manager spawns pass through and keep their opus pin. Forks are always denied in lite, since a fork runs on its caller's model whatever model the call asks for. The spawn hook only acts when the caller is a factory lead, the overseer session or a manager, so a plain Claude Code session or any other agent with `LPF_TIER=lite` set is left alone. Claude Code runs plugin hooks inside subagents too, so the spawn hook also covers the spawns managers make, and the managers' own instructions carry the same rule. Like the ledger hook, the spawn hook needs `node` on your PATH. Without it, or if `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` keeps `LPF_TIER` from reaching the hooks, only the agents' instructions keep the session lite.
 
 ### When inspection runs
 
@@ -186,8 +200,9 @@ plugins/little-planet-factory/
   skills/web-design/                       framework-agnostic SEO, icon, title, and design rules, loaded on demand
   skills/linear/                           Linear project workflows, loaded on demand
   skills/codex-review/                     optional Codex second review, preloaded into the inspector
-  hooks/                                   SessionStart hook that points the overseer to its ledger and re-injects it
-tests/                                     tests for the ledger hook, not shipped with the plugin
+  hooks/                                   SessionStart hook that points the overseer to its ledger and re-injects it (factory-ledger),
+                                           and PreToolUse hook that keeps lite-tier spawns on sonnet (lite-tier.mjs, lite-tier.sh)
+tests/                                     tests for the ledger and lite-tier hooks, not shipped with the plugin
 ```
 
 ## Development
@@ -199,10 +214,11 @@ claude plugin validate .
 claude plugin validate plugins/little-planet-factory
 ```
 
-Run the ledger hook tests (needs Node.js):
+Run the hook tests (needs Node.js):
 
 ```
 sh tests/factory-ledger-hook.test.sh
+sh tests/lite-tier-hook.test.sh
 ```
 
 Test locally from a clone:

@@ -1,5 +1,5 @@
 {
-  "description": "Tells the overseer where its factory ledger lives and re-injects the ledger after compaction or resume.",
+  "description": "Tells the overseer where its factory ledger lives, re-injects the ledger after compaction or resume, and in the lite tier (LPF_TIER=lite) announces the tier and denies agent spawns that aren't on sonnet.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,6 +7,18 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/factory-ledger.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/lite-tier.sh\"",
             "timeout": 10
           }
         ]

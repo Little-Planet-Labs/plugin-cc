@@ -3,10 +3,12 @@
 // The overseer keeps its operational state (running agents, round counts,
 // cleanup record, wake-ups) in a ledger file so auto-compaction can't lose it.
 // This hook tells the overseer where that ledger lives and, after compaction
-// or resume, puts the ledger back into context.
+// or resume, puts the ledger back into context. In a session launched with
+// LPF_TIER=lite it also tells the overseer the tier, on every source.
 //
 // The ledger lives only in the session's own scratchpad_dir. Without one there
-// is no ledger path and the hook outputs nothing. It is read-only: it never
+// is no ledger path, and the hook outputs nothing but the lite overseer's tier
+// line. It is read-only: it never
 // writes, creates, moves, or deletes anything, and it never reads outside
 // scratchpad_dir. Any error ends it with exit code 0 and nothing on stdout, so
 // it can never break or slow a session. No npm dependencies.
@@ -16,6 +18,7 @@ import path from 'path';
 
 const OVERSEER = 'little-planet-factory:overseer';
 const LEDGER_NAME = 'factory-ledger.md';
+const TIER_LINE = 'Factory tier: lite';
 
 // Claude Code moves additionalContext over 10,000 characters to a file, so
 // everything injected stays at or under this.
@@ -110,13 +113,19 @@ function readLedger(scratchpad, ledger) {
 }
 
 function buildContext(input) {
+  // The lite tier is set only by launching with LPF_TIER=lite. The overseer
+  // reads the tier line to know the session is lite.
+  const liteOverseer = input.agent_type === OVERSEER && process.env.LPF_TIER === 'lite';
   const scratchpad = input.scratchpad_dir;
-  if (typeof scratchpad !== 'string' || scratchpad === '') return null;
+  // Without a scratchpad there's no ledger, but the overseer still learns the tier.
+  if (typeof scratchpad !== 'string' || scratchpad === '') return liteOverseer ? TIER_LINE : null;
   const ledger = path.resolve(scratchpad, LEDGER_NAME);
 
   const parts = [];
   if (input.agent_type === OVERSEER) {
-    parts.push(`Factory ledger for this session: ${ledger}`);
+    let announcement = `Factory ledger for this session: ${ledger}`;
+    if (liteOverseer) announcement += `\n${TIER_LINE}`;
+    parts.push(announcement);
   }
 
   const kind = Object.prototype.hasOwnProperty.call(REINJECT_SOURCES, input.source)

@@ -20,8 +20,9 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-# The test process may itself run inside a plugin hook environment.
-unset CLAUDE_PLUGIN_DATA
+# The test process may itself run inside a plugin hook environment, or a lite
+# session.
+unset CLAUDE_PLUGIN_DATA LPF_TIER
 
 tmp_root=${TMPDIR:-/tmp}
 WORK=$(mktemp -d "${tmp_root%/}/factory-ledger-test.XXXXXX") || exit 1
@@ -164,7 +165,7 @@ if ("matcher" in groups[0]) throw new Error("SessionStart group has a matcher");
 const hook = groups[0].hooks[0];
 if (hook.type !== "command") throw new Error("hook type is " + hook.type);
 if (!(hook.timeout > 0 && hook.timeout <= 10)) throw new Error("timeout is " + hook.timeout);
-if (Object.keys(config.hooks).join() !== "SessionStart") throw new Error("unexpected events " + Object.keys(config.hooks));
+if (Object.keys(config.hooks).join() !== "SessionStart,PreToolUse") throw new Error("unexpected events " + Object.keys(config.hooks));
 ' "$HOOKS_JSON" 2>"$WORK/extract-error" || fail "hooks.json: $(cat "$WORK/extract-error")"
 }
 
@@ -553,6 +554,108 @@ hook_writes_nothing() {
   [ -z "$(ls -A "$d/data")" ] || fail "created something under CLAUDE_PLUGIN_DATA: $(ls -A "$d/data")"
 }
 
+# The tier line follows the ledger line, for the overseer only, on every
+# source, and only when LPF_TIER is exactly "lite".
+overseer_lite_announces_tier() {
+  d=$(new_dir)
+  printf 'Factory ledger for this session: %s/factory-ledger.md\nFactory tier: lite' "$d" >"$d/expected"
+  for source in startup resume compact clear fork; do
+    write_input "$d/in.json" "$source" "$OVERSEER" "$d"
+    run_hook "$d/in.json" LPF_TIER=lite
+    expect_context "$source, overseer, lite, no ledger" "$d/expected"
+  done
+  [ "$(head -n 1 "$CTX")" = "Factory ledger for this session: $d/factory-ledger.md" ] || fail "first line isn't the ledger line"
+  [ "$(sed -n 2p "$CTX")" = "Factory tier: lite" ] || fail "second line isn't the tier line"
+
+  printf 'Factory ledger for this session: %s/factory-ledger.md' "$d" >"$d/expected"
+  for tier in "" full LITE " lite" "lite "; do
+    write_input "$d/in.json" startup "$OVERSEER" "$d"
+    run_hook "$d/in.json" LPF_TIER="$tier"
+    expect_context "startup, overseer, LPF_TIER '$tier'" "$d/expected"
+  done
+  run_hook "$d/in.json"
+  expect_context "startup, overseer, LPF_TIER unset" "$d/expected"
+}
+
+lite_tier_line_is_overseer_only() {
+  d=$(new_dir)
+  for source in startup compact; do
+    for agent in "" "some-plugin:other-agent" "little-planet-factory:manager"; do
+      write_input "$d/in.json" "$source" "$agent" "$d"
+      run_hook "$d/in.json" LPF_TIER=lite
+      expect_silent "$source, agent_type '$agent', lite, no ledger"
+    done
+  done
+  # A non-overseer still gets the re-injected ledger, without the tier line.
+  write_tricky_ledger "$d/factory-ledger.md"
+  write_input "$d/in.json" compact "" "$d"
+  write_block "$d/expected" compaction "$d/factory-ledger.md" "$d/factory-ledger.md"
+  run_hook "$d/in.json" LPF_TIER=lite
+  expect_context "compact, no agent_type, lite" "$d/expected"
+}
+
+# Without a scratchpad there's no ledger line, but the lite overseer still gets
+# the tier line alone, on every source. Nobody else gets anything.
+lite_overseer_without_scratchpad_gets_tier_only() {
+  d=$(new_dir)
+  printf 'Factory tier: lite' >"$d/expected"
+  for source in startup resume compact clear fork; do
+    write_input "$d/in.json" "$source" "$OVERSEER" -
+    run_hook "$d/in.json" LPF_TIER=lite
+    expect_context "$source, overseer, lite, no scratchpad_dir" "$d/expected"
+    write_input "$d/in.json" "$source" "$OVERSEER" ""
+    run_hook "$d/in.json" LPF_TIER=lite
+    expect_context "$source, overseer, lite, empty scratchpad_dir" "$d/expected"
+    printf '{"source":"%s","agent_type":"%s","scratchpad_dir":42}' "$source" "$OVERSEER" >"$d/in.json"
+    run_hook "$d/in.json" LPF_TIER=lite
+    expect_context "$source, overseer, lite, scratchpad_dir 42" "$d/expected"
+    write_input "$d/in.json" "$source" "$OVERSEER" -
+    run_hook "$d/in.json" LPF_TIER=full
+    expect_silent "$source, overseer, LPF_TIER full, no scratchpad_dir"
+    for agent in "" "little-planet-factory:manager"; do
+      write_input "$d/in.json" "$source" "$agent" -
+      run_hook "$d/in.json" LPF_TIER=lite
+      expect_silent "$source, agent_type '$agent', lite, no scratchpad_dir"
+    done
+  done
+  # A bad ledger still suppresses all output, the tier line included.
+  mkdir "$d/factory-ledger.md"
+  write_input "$d/in.json" compact "$OVERSEER" "$d"
+  run_hook "$d/in.json" LPF_TIER=lite
+  expect_silent "ledger is a directory, overseer, lite"
+}
+
+overseer_lite_compact_announces_tier_then_injects() {
+  d=$(new_dir)
+  write_tricky_ledger "$d/factory-ledger.md"
+  write_input "$d/in.json" compact "$OVERSEER" "$d"
+  {
+    printf 'Factory ledger for this session: %s/factory-ledger.md\nFactory tier: lite\n\n' "$d"
+    write_block "$d/block" compaction "$d/factory-ledger.md" "$d/factory-ledger.md"
+    cat "$d/block"
+  } >"$d/expected"
+  run_hook "$d/in.json" LPF_TIER=lite
+  expect_context "overseer compact, lite" "$d/expected"
+}
+
+overseer_lite_oversized_stays_under_cap() {
+  d=$(new_dir)
+  ledger="$d/factory-ledger.md"
+  printf 'Factory ledger re-injected after compaction: %s\n%s\n---\n' "$ledger" "$FOLLOW_LINE" >"$d/header"
+  header_len=$(wc -c <"$d/header" | tr -d ' ')
+  # Fits alone at exactly 9,000, so the announcement and tier line push it over.
+  repeat_char $((9000 - header_len)) x >"$ledger"
+  write_input "$d/in.json" compact "$OVERSEER" "$d"
+  {
+    printf 'Factory ledger for this session: %s\nFactory tier: lite\n\n' "$ledger"
+    write_pointer "$d/pointer" "$ledger" $((9000 - header_len))
+    cat "$d/pointer"
+  } >"$d/expected"
+  run_hook "$d/in.json" LPF_TIER=lite
+  expect_context "overseer, lite, oversized" "$d/expected"
+  [ "$(cat "$CTXLEN")" -lt 10000 ] || fail "context is $(cat "$CTXLEN") characters"
+}
+
 # Runs last: checks every non-empty stdout any earlier test produced.
 output_is_valid_json() {
   if [ "$OUTPUT_COUNT" -eq 0 ]; then
@@ -586,6 +689,11 @@ run_test invalid_utf8_ledger_is_silent
 run_test unreadable_ledger_is_silent
 run_test missing_node_is_silent
 run_test hook_writes_nothing
+run_test overseer_lite_announces_tier
+run_test lite_tier_line_is_overseer_only
+run_test lite_overseer_without_scratchpad_gets_tier_only
+run_test overseer_lite_compact_announces_tier_then_injects
+run_test overseer_lite_oversized_stays_under_cap
 run_test output_is_valid_json
 
 echo
